@@ -1,8 +1,19 @@
-"use client";
+"use client"; // Add this directive to make the component a Client Component
 
-import React, { useState, FormEvent } from "react";
+import React, { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faEye, faEyeSlash } from "@fortawesome/free-solid-svg-icons";
+import "@fortawesome/fontawesome-svg-core/styles.css";
+
+import { config } from "@fortawesome/fontawesome-svg-core";
+import axios from "axios";
+
+config.autoAddCss = false;
+
+const BACKEND_URL = "http://localhost:5000"; // Backend URL
 
 const Register = () => {
   const [fullName, setFullName] = useState<string>("");
@@ -10,16 +21,62 @@ const Register = () => {
   const [phoneNumber, setPhoneNumber] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [confirmPassword, setConfirmPassword] = useState<string>("");
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const router = useRouter();
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    console.log("Register:", {
-      fullName,
-      email,
-      phoneNumber,
-      password,
-      confirmPassword,
-    });
+
+    if (!fullName || !email || !phoneNumber || !password || !confirmPassword) {
+      alert("Please enter all your details.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      alert("Passwords do not match.");
+      return;
+    }
+
+    try {
+      // Send data to backend
+      const response = await axios.post(`${BACKEND_URL}/register`, {
+        fullName,
+        email,
+        phoneNumber,
+        password,
+      });
+
+      console.log("Register response:", response.data);
+
+      // Redirect user to login page
+      router.push("/login"); // Correct usage of router.push
+    } catch (error) {
+      console.error("Error during registration:", error);
+
+      // Handle errors gracefully
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          alert(error.response.data.message || "Failed to register");
+        } else {
+          alert("An unexpected error occurred. Please try again.");
+        }
+      }
+    }
+  };
+
+  const togglePasswordVisibility = () => {
+    setShowPassword(!showPassword);
+  };
+
+  const toggleConfirmPasswordVisibility = () => {
+    setShowConfirmPassword(!showConfirmPassword);
+  };
+
+  const handleLoginClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    router.push("/login");
   };
 
   return (
@@ -36,14 +93,11 @@ const Register = () => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-        <p className="text-center text-sm text-gray-600 mb-6">
+          <p className="text-center text-sm text-gray-600 mb-6">
             Register with us to enjoy the full experience
           </p>
           <div>
-            <label
-              htmlFor="fullName"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
+            <label htmlFor="fullName" className="block text-sm font-medium text-gray-900 mb-2">
               Full Name
             </label>
             <input
@@ -52,15 +106,12 @@ const Register = () => {
               placeholder="Enter Full Name"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] focus:bg-green-50 transition-all duration-200 text-gray-900 placeholder-gray-500"
+              className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] text-gray-900 placeholder-gray-500"
             />
           </div>
 
           <div>
-            <label
-              htmlFor="email"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
+            <label htmlFor="email" className="block text-sm font-medium text-gray-900 mb-2">
               Email
             </label>
             <input
@@ -69,15 +120,12 @@ const Register = () => {
               placeholder="Enter Email Address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] focus:bg-green-50 transition-all duration-200 text-gray-900 placeholder-gray-500"
+              className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] text-gray-900 placeholder-gray-500"
             />
           </div>
 
           <div>
-            <label
-              htmlFor="phoneNumber"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
+            <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-900 mb-2">
               Phone Number
             </label>
             <input
@@ -86,42 +134,54 @@ const Register = () => {
               placeholder="Enter Phone Number"
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
-              className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] focus:bg-green-50 transition-all duration-200 text-gray-900 placeholder-gray-500"
+              className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] text-gray-900 placeholder-gray-500"
             />
           </div>
 
           <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
+            <label htmlFor="password" className="block text-sm font-medium text-gray-900 mb-2">
               Password
             </label>
-            <input
-              id="password"
-              type="password"
-              placeholder="Enter Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] focus:bg-green-50 transition-all duration-200 text-gray-900 placeholder-gray-500"
-            />
+            <div className="relative">
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                placeholder="Enter Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] text-gray-900 placeholder-gray-500"
+              />
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                onClick={togglePasswordVisibility}
+              >
+                <FontAwesomeIcon icon={showPassword ? faEyeSlash : faEye} />
+              </button>
+            </div>
           </div>
 
           <div>
-            <label
-              htmlFor="confirmPassword"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-900 mb-2">
               Confirm Password
             </label>
-            <input
-              id="confirmPassword"
-              type="password"
-              placeholder="Confirm Password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] focus:bg-green-50 transition-all duration-200 text-gray-900 placeholder-gray-500"
-            />
+            <div className="relative">
+              <input
+                id="confirmPassword"
+                type={showConfirmPassword ? "text" : "password"}
+                placeholder="Confirm Password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] text-gray-900 placeholder-gray-500"
+              />
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                onClick={toggleConfirmPasswordVisibility}
+              >
+                <FontAwesomeIcon icon={showConfirmPassword ? faEyeSlash : faEye} />
+              </button>
+            </div>
           </div>
 
           <button
@@ -134,7 +194,7 @@ const Register = () => {
 
         <p className="mt-6 text-center text-sm text-gray-600">
           Already have an account?{" "}
-          <Link href="/login" className="text-[#005555] hover:underline">
+          <Link href="/login" onClick={handleLoginClick} className="text-[#005555] hover:underline">
             Login
           </Link>
         </p>

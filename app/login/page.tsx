@@ -3,32 +3,62 @@
 import React, { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from 'next/navigation';
+import { useRouter } from "next/navigation";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEye, faEyeSlash } from "@fortawesome/free-solid-svg-icons";
 import "@fortawesome/fontawesome-svg-core/styles.css";
-
 import { config } from "@fortawesome/fontawesome-svg-core";
+import axios from "axios";
+
 config.autoAddCss = false;
 
 const Login = () => {
-  const [email, setEmail] = useState<string>("");
-  const [password, setPassword] = useState<string>("");
-  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const router = useRouter();
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-
+    setError("");
+    setSuccess("");
+  
     if (!email || !password) {
-      alert("Please enter your email and password.");
+      setError("Please enter your email and password.");
       return;
     }
 
-    console.log("Login:", { email, password });
-
-    router.push('/otp');
+    if (!process.env.NEXT_PUBLIC_BACKEND_URL) {
+      console.error("NEXT_PUBLIC_BACKEND_URL is not defined in environment variables.");
+      setError("Server configuration error. Please contact support.");
+      return;
+    }
+  
+    try {
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/login`,
+        {
+          email,
+          password,
+        }
+      );
+      if (response.status === 200){}
+      setSuccess("Login successful! Redirecting to OTP verification...");
+      
+      router.push("/otp");
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        setError(err.response?.data?.message || "Login failed. Please try again.");
+      } else {
+        setError("An unexpected error occurred. Please try again.");
+      }
+      console.error("Login error:", err);
+    }
   };
+  
+
 
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
@@ -50,7 +80,12 @@ const Login = () => {
           <p className="text-center text-sm text-gray-600 mb-6">
             Enter your email and password to Login!
           </p>
-
+          {error && (
+            <p className="text-center text-sm text-red-600">{error}</p>
+          )}
+          {success && (
+            <p className="text-center text-sm text-green-600">{success}</p>
+          )}
           <div>
             <label
               htmlFor="email"
@@ -103,7 +138,7 @@ const Login = () => {
         </form>
 
         <p className="mt-6 text-center text-sm text-gray-600">
-          you don’t have an account?{" "}
+          Don’t have an account?{" "}
           <Link href="/register" className="text-[#005555] hover:underline">
             Create Account
           </Link>

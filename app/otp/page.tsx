@@ -2,15 +2,78 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
+import { useRouter, useSearchParams } from "next/navigation";
+import axios from "axios";
 
 const OTPVerification = () => {
   const [otp, setOtp] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const email = searchParams.get("email") || "";
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    console.log("OTP:", otp);
-   
+    setError("");
+    setSuccess("");
+  
+    if (!otp) {
+      setError("Please enter the OTP.");
+      return;
+    }
+  
+    if (!email) {
+      setError("Email is missing. Please log in again.");
+      return;
+    }
+    try {
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/login`,
+        { email, otp }
+      );
+    
+      if (response.status === 200) {
+        const { otp } = response.data; // Extract OTP from response
+        console.log("Received OTP:", otp); // Log OTP to console
+    
+        setSuccess("Login successful! Redirecting to OTP verification...");
+        sessionStorage.setItem("authEmail", email); // Store email for OTP verification
+        router.push("/otp");
+      }
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        setError(err.response?.data?.message || "Login failed. Please try again.");
+      } else {
+        setError("An unexpected error occurred. Please try again.");
+      }
+      console.error("Login error:", err);
+    }
+    
+    // try {
+    //   const response = await axios.post(
+    //     `${process.env.NEXT_PUBLIC_BACKEND_URL}/verify-otp`,
+    //     {
+    //       email,
+    //       otp,
+    //     }
+    //   );
+    //   if (response.status === 200) {
+    //     setSuccess("OTP verified! Redirecting to dashboard...");
+    //     router.push("/dashboard"); 
+    //   }
+    // } catch (err) {
+    //   if (axios.isAxiosError(err)) {
+    //     setError(err.response?.data?.message || "OTP verification failed.");
+    //   } else {
+    //     setError("An unexpected error occurred. Please try again.");
+    //   }
+    //   console.error("OTP error:", err);
+    // }
   };
+  
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -29,7 +92,12 @@ const OTPVerification = () => {
           <p className="text-center text-sm text-gray-600 mb-6">
             Please enter the OTP sent to your email!
           </p>
-
+          {error && (
+            <p className="text-center text-sm text-red-600">{error}</p>
+          )}
+          {success && (
+            <p className="text-center text-sm text-green-600">{success}</p>
+          )}
           <div>
             <label
               htmlFor="otp"
