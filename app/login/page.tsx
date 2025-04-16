@@ -47,7 +47,7 @@ const Login = () => {
       if (response.status === 200){}
       setSuccess("Login successful! Redirecting to OTP verification...");
       
-      router.push("/otp");
+      router.push("/otp?email=${encodeURIComponent(email)}");
     } catch (err) {
       if (axios.isAxiosError(err)) {
         setError(err.response?.data?.message || "Login failed. Please try again.");

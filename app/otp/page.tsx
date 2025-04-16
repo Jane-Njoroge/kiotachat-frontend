@@ -2,14 +2,14 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import axios from "axios";
 
 const OTPVerification = () => {
   const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const router = useRouter();
+  // const router = useRouter();
   const searchParams = useSearchParams();
   const email = searchParams.get("email") || "";
 
@@ -31,17 +31,17 @@ const OTPVerification = () => {
     }
     try {
       const response = await axios.post(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/login`,
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/verify-otp`,
         { email, otp }
       );
     
       if (response.status === 200) {
-        const { otp } = response.data; // Extract OTP from response
-        console.log("Received OTP:", otp); // Log OTP to console
+        // const { otp } = response.data; 
+        // console.log("Received OTP:", otp); 
     
-        setSuccess("Login successful! Redirecting to OTP verification...");
-        sessionStorage.setItem("authEmail", email); // Store email for OTP verification
-        router.push("/otp");
+        // setSuccess("Login successful! Redirecting to OTP verification...");
+        // sessionStorage.setItem("authEmail", email); 
+        // router.push("/otp?mail=${email}");
       }
     } catch (err) {
       if (axios.isAxiosError(err)) {

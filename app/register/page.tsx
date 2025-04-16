@@ -13,7 +13,8 @@ import axios from "axios";
 
 config.autoAddCss = false;
 
-const BACKEND_URL = "http://localhost:5000"; // Backend URL
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+
 
 const Register = () => {
   const [fullName, setFullName] = useState<string>("");
@@ -40,7 +41,6 @@ const Register = () => {
     }
 
     try {
-      // Send data to backend
       const response = await axios.post(`${BACKEND_URL}/register`, {
         fullName,
         email,
@@ -50,12 +50,11 @@ const Register = () => {
 
       console.log("Register response:", response.data);
 
-      // Redirect user to login page
-      router.push("/login"); // Correct usage of router.push
+     
+      router.push("/login"); 
     } catch (error) {
       console.error("Error during registration:", error);
 
-      // Handle errors gracefully
       if (axios.isAxiosError(error)) {
         if (error.response) {
           alert(error.response.data.message || "Failed to register");
