@@ -2,81 +2,66 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import axios from "axios";
 
-const OTPVerification = () => {
+const OTPVerification: React.FC = () => {
   const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  // const router = useRouter();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const email = searchParams.get("email") || "";
-
-  
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setSuccess("");
-  
-    if (!otp) {
+
+    if (!otp.trim()) {
       setError("Please enter the OTP.");
       return;
     }
-  
+
     if (!email) {
       setError("Email is missing. Please log in again.");
       return;
     }
+
     try {
       const response = await axios.post(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/verify-otp`,
         { email, otp }
       );
-    
+
       if (response.status === 200) {
-        // const { otp } = response.data; 
-        // console.log("Received OTP:", otp); 
-    
-        // setSuccess("Login successful! Redirecting to OTP verification...");
-        // sessionStorage.setItem("authEmail", email); 
-        // router.push("/otp?mail=${email}");
+        setSuccess("OTP verified successfully! Redirecting...");
+
+        // Set userRole cookie (client-side)
+        // This assumes your backend sets an HTTP-only cookie as well for security
+        // document.cookie = `userRole=${response.data.role}; path=/; max-age=86400`;
+
+        // Redirect based on role
+        if (response.data.role === "ADMIN") {
+          router.push("/admin/chatbox");
+        } else {
+          router.push("/user/chatbox");
+        }
+      } else {
+        setError("Failed to verify OTP. Please try again.");
       }
-    } catch (err) {
+    } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.message || "Login failed. Please try again.");
+        setError(err.response?.data?.message || "OTP verification failed.");
       } else {
         setError("An unexpected error occurred. Please try again.");
       }
-      console.error("Login error:", err);
+      console.error("OTP verification error:", err);
     }
-    
-    // try {
-    //   const response = await axios.post(
-    //     `${process.env.NEXT_PUBLIC_BACKEND_URL}/verify-otp`,
-    //     {
-    //       email,
-    //       otp,
-    //     }
-    //   );
-    //   if (response.status === 200) {
-    //     setSuccess("OTP verified! Redirecting to dashboard...");
-    //     router.push("/dashboard"); 
-    //   }
-    // } catch (err) {
-    //   if (axios.isAxiosError(err)) {
-    //     setError(err.response?.data?.message || "OTP verification failed.");
-    //   } else {
-    //     setError("An unexpected error occurred. Please try again.");
-    //   }
-    //   console.error("OTP error:", err);
-    // }
   };
-  
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
       <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
         <div className="flex justify-center mb-8">
           <Image
@@ -92,12 +77,14 @@ const OTPVerification = () => {
           <p className="text-center text-sm text-gray-600 mb-6">
             Please enter the OTP sent to your email!
           </p>
+
           {error && (
             <p className="text-center text-sm text-red-600">{error}</p>
           )}
           {success && (
             <p className="text-center text-sm text-green-600">{success}</p>
           )}
+
           <div>
             <label
               htmlFor="otp"
@@ -112,6 +99,10 @@ const OTPVerification = () => {
               value={otp}
               onChange={(e) => setOtp(e.target.value)}
               className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] transition-all duration-200 text-gray-900 placeholder-gray-500"
+              maxLength={6}
+              inputMode="numeric"
+              pattern="\d{6}"
+              autoComplete="one-time-code"
             />
           </div>
 

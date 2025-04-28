@@ -1,4 +1,4 @@
-"use client"; // Add this directive to make the component a Client Component
+"use client"; 
 
 import React, { useState } from "react";
 import Image from "next/image";
