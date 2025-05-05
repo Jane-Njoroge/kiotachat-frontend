@@ -1,5 +1,4 @@
 "use client";
-
 import React, { useState, useEffect, useRef, FormEvent } from "react";
 import io, { Socket } from "socket.io-client";
 import axios from "axios";
@@ -9,7 +8,7 @@ interface User {
   fullName: string;
   email: string;
   phoneNumber?: string;
-  role: 'USER' | 'ADMIN';
+  role: "USER" | "ADMIN";
 }
 
 interface Message {
@@ -38,131 +37,170 @@ const AdminChatLayout: React.FC = () => {
   const [newMessage, setNewMessage] = useState("");
   const [userId, setUserId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [users, setUsers] = useState<User[]>([]);
-  const [searchResults, setSearchResults] = useState<User[]>([]);
+  const [searchResults, setSearchResults] = useState<(User | Conversation)[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchUserId = async () => {
       try {
+        setIsLoading(true);
         const response = await axios.get<{ userId: string }>(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/verify-otp`,
           { withCredentials: true }
         );
         setUserId(response.data.userId);
-      } catch (error) {
-        console.error("Error fetching userId:", error);
+      } catch (error: unknown) {
+        let errorMessage = "Failed to authenticate. Please log in again.";
+        if (axios.isAxiosError(error)) {
+          errorMessage = error.response?.data?.message || error.message;
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        console.error("Error fetching userId:", errorMessage);
+      } finally {
+        setIsLoading(false);
       }
     };
     fetchUserId();
 
-    socketRef.current = io(process.env.NEXT_PUBLIC_BACKEND_URL!, {
+    socketRef.current = io(process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5002", {
       withCredentials: true,
     });
 
     const socket = socketRef.current;
-    
+
     socket.on("connect", () => {
       console.log("Connected to Socket.IO server");
-      socket.emit("register", { userId, role: "ADMIN" });
     });
 
     socket.on("private message", (message: Message) => {
-      setMessages((prev) => [...prev, message]);
-      scrollToBottom();
+      if (message.conversationId === selectedConversation?.id) {
+        setMessages((prev) => [...prev, message]);
+        scrollToBottom();
+      }
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === message.conversationId
+            ? { ...conv, messages: [...conv.messages, message], updatedAt: new Date().toISOString() }
+            : conv
+        )
+      );
     });
 
     socket.on("error", ({ message }: { message: string }) => {
       console.error("Socket error:", message);
     });
 
+    socket.on("connect_error", (err) => {
+      console.error("Socket connection error:", err.message);
+    });
+
     return () => {
       socket.disconnect();
     };
-  }, [userId]);
+  }, [selectedConversation]);
 
   useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const response = await axios.get<User[]>(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/users`,
-          { 
-            params: {role: "USER"},
-            withCredentials: true }
-        );
-        setUsers(response.data);
-      } catch (error) {
-        console.error("Error fetching users:", error);
-      }
-    };
-    
-    if (userId) fetchUsers();
+    if (userId && socketRef.current) {
+      socketRef.current.emit("register", { userId, role: "ADMIN" });
+    }
   }, [userId]);
 
   useEffect(() => {
     const fetchConversations = async () => {
+      if (!userId) return;
       try {
+        setIsLoading(true);
         const response = await axios.get<Conversation[]>(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
-          { params: { userId }, withCredentials: true }
+          { params: { userId, tab: activeTab }, withCredentials: true }
         );
-        setConversations(response.data);
-      } catch (error) {
-        console.error("Error fetching conversations:", error);
+        setConversations(response
+
+.data);
+      } catch (error: unknown) {
+        let errorMessage = "Failed to fetch conversations.";
+        if (axios.isAxiosError(error)) {
+          errorMessage = error.response?.data?.message || error.message || errorMessage;
+        } else if (error instanceof Error) {
+          errorMessage = error.message || errorMessage;
+        }
+        console.error("Error fetching conversations:", errorMessage);
+      } finally {
+        setIsLoading(false);
       }
     };
-    if (userId) fetchConversations();
+    fetchConversations();
   }, [userId, activeTab]);
 
   useEffect(() => {
     const fetchMessages = async () => {
-      if (selectedConversation) {
-        try {
-          const response = await axios.get<Message[]>(
-            `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages`,
-            {
-              params: { conversationId: selectedConversation.id },
-              withCredentials: true,
-            }
-          );
-          setMessages(response.data);
-          scrollToBottom();
-        } catch (error) {
-          console.error("Error fetching messages:", error);
-        }
+      if (!selectedConversation) return;
+      try {
+        setIsLoading(true);
+        const response = await axios.get<Message[]>(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages`,
+          {
+            params: { conversationId: selectedConversation.id },
+            withCredentials: true,
+          }
+        );
+        setMessages(response.data);
+        scrollToBottom();
+      } catch (error: unknown) {
+        console.error("Error fetching messages:", error);
+      } finally {
+        setIsLoading(false);
       }
     };
     fetchMessages();
   }, [selectedConversation]);
 
   useEffect(() => {
-    if (searchQuery.trim()) {
-      const results = users.filter(user =>
-        user.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        user.phoneNumber?.includes(searchQuery)
-      );
-      setSearchResults(results);
-    } else {
-      setSearchResults([]);
-    }
-  }, [searchQuery, users]);
+    const searchBackend = async () => {
+      if (!searchQuery.trim() || !userId) {
+        setSearchResults([]);
+        return;
+      }
+      try {
+        setIsLoading(true);
+        const response = await axios.get<(User | Conversation)[]>(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/search`,
+          {
+            params: { query: searchQuery, userId },
+            withCredentials: true,
+          }
+        );
+        setSearchResults(response.data);
+      } catch (error: unknown) {
+        console.error("Error searching:", error);
+        setSearchResults([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    const debounce = setTimeout(searchBackend, 300);
+    return () => clearTimeout(debounce);
+  }, [searchQuery, userId]);
 
   const createNewConversation = async (userId: string) => {
     try {
+      setIsLoading(true);
       const response = await axios.post<Conversation>(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
         { userId },
         { withCredentials: true }
       );
-      
-      setConversations(prev => [response.data, ...prev]);
+      setConversations((prev) => [response.data, ...prev]);
       setSelectedConversation(response.data);
       setSearchQuery("");
-      
-    } catch (error) {
+      setSearchResults([]);
+    } catch (error: unknown) {
       console.error("Error creating conversation:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -170,29 +208,33 @@ const AdminChatLayout: React.FC = () => {
     setActiveTab(tab);
     setSelectedConversation(null);
     setMessages([]);
+    setSearchQuery("");
+    setSearchResults([]);
   };
 
   const handleConversationClick = (conversation: Conversation) => {
     setSelectedConversation(conversation);
+    setSearchQuery("");
+    setSearchResults([]);
   };
 
-  const handleSendMessage = (e: FormEvent) => {
+  const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedConversation) return;
+    if (!newMessage.trim() || !selectedConversation || !socketRef.current) return;
 
-  try{
-    const messageData = {
-      content: newMessage,
-      to: selectedConversation.userId,
-      from: userId,
-      conversationId: selectedConversation.id,
-    };
+    try {
+      const messageData = {
+        content: newMessage,
+        to: selectedConversation.userId,
+        from: userId,
+        conversationId: selectedConversation.id,
+      };
 
-    socketRef.current?.emit("private message", messageData);
-    setNewMessage("");
-  }catch (error) {
-    console.error("Error sending message:", error);
-  }
+      socketRef.current.emit("private message", messageData);
+      setNewMessage("");
+    } catch (error: unknown) {
+      console.error("Error sending message:", error);
+    }
   };
 
   const scrollToBottom = () => {
@@ -200,8 +242,8 @@ const AdminChatLayout: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen bg-[#0B141A]">
-      <div className="w-full max-w-sm bg-[#121B22] flex flex-col border-r border-[#222E35]">
+    <div className="flex h-screen w-screen bg-[#000000]">
+      <div className="w-full max-w-xs bg-[#121B22] flex flex-col border-r border-[#222E35]">
         <div className="p-4 bg-[#1E2A32]">
           <div className="bg-[#2A3942] rounded-lg flex items-center pl-4 py-2">
             <svg
@@ -220,7 +262,7 @@ const AdminChatLayout: React.FC = () => {
             </svg>
             <input
               type="text"
-              placeholder="Search"
+              placeholder="Search users, emails, or messages..."
               className="bg-transparent border-none outline-none text-gray-400 placeholder-gray-500 w-full"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -243,39 +285,49 @@ const AdminChatLayout: React.FC = () => {
         </div>
 
         <div className="flex-1 overflow-y-auto mt-4 text-gray-400">
+          {isLoading && <p className="text-center text-gray-500">Loading...</p>}
           {searchQuery ? (
             searchResults.length > 0 ? (
-              searchResults.map((user) => {
-                const existingConversation = conversations.find(
-                  conv => conv.userId === user.id
-                );
-                
+              searchResults.map((result) => {
+                const isUser = "role" in result;
+                const existingConversation = isUser
+                  ? conversations.find((conv) => conv.userId === result.id)
+                  : result;
+
                 return (
                   <div
-                    key={user.id}
+                    key={isUser ? result.id : result.id}
                     className={`p-4 hover:bg-[#1E2A32] cursor-pointer ${
-                      selectedConversation?.userId === user.id ? "bg-[#1E2A32]" : ""
+                      selectedConversation?.id === (isUser ? existingConversation?.id : result.id)
+                        ? "bg-[#1E2A32]"
+                        : ""
                     }`}
                     onClick={() => {
-                      if (existingConversation) {
-                        handleConversationClick(existingConversation);
+                      if (isUser && !existingConversation) {
+                        createNewConversation(result.id);
                       } else {
-                        createNewConversation(user.id);
+                        handleConversationClick((existingConversation || result) as Conversation);
                       }
                     }}
                   >
-                    <p className="font-semibold">{user.fullName}</p>
-                    <p className="text-sm">{user.email}</p>
+                    <p className="font-semibold">
+                      {isUser ? result.fullName : result.user.fullName}
+                    </p>
+                    <p className="text-sm">
+                      {isUser ? result.email : result.messages[0]?.content || "No messages yet"}
+                    </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      {existingConversation 
-                        ? `Existing chat - ${existingConversation.messages.length} messages`
-                        : "New conversation"}
+                      {isUser
+                        ? existingConversation
+                          ? `Existing chat - ${existingConversation.messages.length} messages`
+                          : "New conversation"
+                        : new Date(result.createdAt).toLocaleDateString()}
                     </p>
                   </div>
                 );
               })
             ) : (
-              <p className="text-center">No users found</p>
+              <p className="text-center">No users or conversations found</p>
             )
           ) : conversations.length > 0 ? (
             conversations.map((conv) => (
@@ -291,7 +343,7 @@ const AdminChatLayout: React.FC = () => {
                   {conv.messages[0]?.content || "No messages yet"}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  {new Date(conv.createdAt).toLocaleDateString()}
+                  {new Date(conv.updatedAt).toLocaleDateString()}
                 </p>
               </div>
             ))
@@ -310,28 +362,32 @@ const AdminChatLayout: React.FC = () => {
               </h2>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 bg-[#0B141A]">
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`mb-4 flex ${
-                    msg.senderId === userId ? "justify-end" : "justify-start"
-                  }`}
-                >
+            <div className="flex-1 overflow-y-auto p-4 bg-[#000000]">
+              {messages.length > 0 ? (
+                messages.map((msg) => (
                   <div
-                    className={`max-w-xs p-3 rounded-lg ${
-                      msg.senderId === userId
-                        ? "bg-[#2A3942] text-white"
-                        : "bg-[#1E2A32] text-gray-300"
+                    key={msg.id}
+                    className={`mb-4 flex ${
+                      msg.senderId === userId ? "justify-end" : "justify-start"
                     }`}
                   >
-                    <p>{msg.content}</p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {new Date(msg.createdAt).toLocaleTimeString()}
-                    </p>
+                    <div
+                      className={`max-w-xs p-3 rounded-lg ${
+                        msg.senderId === userId
+                          ? "bg-[#2A3942] text-white"
+                          : "bg-[#1E2A32] text-gray-300"
+                      }`}
+                    >
+                      <p>{msg.content}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {new Date(msg.createdAt).toLocaleTimeString()}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-center text-gray-500">No messages yet</p>
+              )}
               <div ref={messagesEndRef} />
             </div>
 

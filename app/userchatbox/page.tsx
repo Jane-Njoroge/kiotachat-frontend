@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, FormEvent } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBell, faCog, faMoon, faSun } from "@fortawesome/free-solid-svg-icons";
+import { faCog, faMoon, faSun } from "@fortawesome/free-solid-svg-icons";
 import "@fortawesome/fontawesome-svg-core/styles.css";
 import { config } from "@fortawesome/fontawesome-svg-core";
 import io, { Socket } from "socket.io-client";
@@ -15,7 +15,7 @@ interface User {
   fullName: string;
   email: string;
   phoneNumber?: string;
-  role: 'USER' | 'ADMIN';
+  role: "USER" | "ADMIN";
 }
 
 interface Message {
@@ -47,24 +47,36 @@ const UserChatbox: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [userId, setUserId] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Conversation[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchUserId = async () => {
       try {
+        setIsLoading(true);
         const response = await axios.get<{ userId: string }>(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/verify-otp`,
           { withCredentials: true }
         );
         setUserId(response.data.userId);
-      } catch (error) {
+        setError(null);
+      } catch (error: unknown) {
         console.error("Error fetching userId:", error);
+        setError(
+          axios.isAxiosError(error)
+          ?error.response?.data?.message ||"Failed to authenticate. Please log in again"
+        :"An unexpected error occurred");
+      } finally {
+        setIsLoading(false);
       }
     };
     fetchUserId();
 
-    socketRef.current = io(process.env.NEXT_PUBLIC_BACKEND_URL!, {
+    socketRef.current = io(process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5002", {
       withCredentials: true,
     });
 
@@ -72,89 +84,139 @@ const UserChatbox: React.FC = () => {
 
     socket.on("connect", () => {
       console.log("Connected to Socket.IO server");
-      socket.emit("register", { userId, role: "USER" });
     });
 
     socket.on("private message", (message: Message) => {
-      setMessages((prev) => [...prev, message]);
-      scrollToBottom();
+      if (message.conversationId === selectedConversation?.id) {
+        setMessages((prev) => [...prev, message]);
+        scrollToBottom();
+      }
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === message.conversationId
+            ? { ...conv, messages: [...conv.messages, message], updatedAt: new Date().toISOString() }
+            : conv
+        )
+      );
     });
 
     socket.on("error", ({ message }: { message: string }) => {
       console.error("Socket error:", message);
+      setError(message);
+    });
+
+    socket.on("connect_error", (err) => {
+      console.error("Socket connection error:", err.message);
+      setError("Failed to connect to server. Please try again.");
     });
 
     return () => {
       socket.disconnect();
     };
+  }, [selectedConversation]);
+
+  useEffect(() => {
+    if (userId && socketRef.current) {
+      socketRef.current.emit("register", { userId, role: "USER" });
+    }
   }, [userId]);
-  
+
+
   useEffect(() => {
     const fetchConversations = async () => {
+      if (!userId) return;
       try {
+        setIsLoading(true);
         const response = await axios.get<Conversation[]>(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
-          { params: { userId }, withCredentials: true }
+          { params: { userId, tab: activeTab }, withCredentials: true }
         );
-        
-        // Get admin info for each conversation
-        const withAdmin = await Promise.all(response.data.map(async conv => {
-          const admin = await axios.get(
-            `${process.env.NEXT_PUBLIC_BACKEND_URL}/admin-id`
-          );
-          return { ...conv, admin: admin.data };
-        }));
-        
-        setConversations(withAdmin);
-      } catch (error) {
+        setConversations(response.data);
+        if (response.data.length > 0 && !selectedConversation) {
+          setSelectedConversation(response.data[0]);
+        }
+        setError(null);
+      } catch (error: unknown) {
         console.error("Error fetching conversations:", error);
+        setError(
+          axios.isAxiosError(error)
+         ?error.response?.data?.message || "Failed to fetch conversations"
+        :"An unexpected error occurred");
+      } finally {
+        setIsLoading(false);
       }
     };
-    if (userId) fetchConversations();
+    fetchConversations();
   }, [userId, activeTab]);
-  // useEffect(() => {
-  //   const fetchConversations = async () => {
-  //     try {
-  //       const response = await axios.get<Conversation[]>(
-  //         `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
-  //         { params: { userId }, withCredentials: true }
-  //       );
-  //       setConversations(response.data);
-  //       if (response.data.length > 0) {
-  //         setSelectedConversation(response.data[0]);
-  //       }
-  //     } catch (error) {
-  //       console.error("Error fetching conversations:", error);
-  //     }
-  //   };
-  //   if (userId) fetchConversations();
-  // }, [userId, activeTab]);
+
 
   useEffect(() => {
     const fetchMessages = async () => {
-      if (selectedConversation) {
-        try {
-          const response = await axios.get<Message[]>(
-            `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages`,
-            {
-              params: { conversationId: selectedConversation.id },
-              withCredentials: true,
-            }
-          );
-          setMessages(response.data);
-          scrollToBottom();
-        } catch (error) {
-          console.error("Error fetching messages:", error);
-        }
+      if (!selectedConversation) return;
+      try {
+        setIsLoading(true);
+        const response = await axios.get<Message[]>(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages`,
+          {
+            params: { conversationId: selectedConversation.id },
+            withCredentials: true,
+          }
+        );
+        setMessages(response.data);
+        scrollToBottom();
+        setError(null);
+      } catch (error: unknown) {
+        console.error("Error fetching messages:", error);
+        setError(
+          axios.isAxiosError(error)
+          ?error.response?.data?.message ||"Failed to fetch messages"
+        :"An unexpected error occurred");
+      } finally {
+        setIsLoading(false);
       }
     };
     fetchMessages();
   }, [selectedConversation]);
 
+  useEffect(() => {
+    const searchBackend = async () => {
+      if (!searchQuery.trim() || !userId) {
+        setSearchResults([]);
+        return;
+      }
+      try {
+        setIsLoading(true);
+        const response = await axios.get<Conversation[]>(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/search`,
+          {
+            params: { query: searchQuery, userId, role: "USER" },
+            withCredentials: true,
+          }
+        );
+        setSearchResults(response.data);
+        setError(null);
+      } catch (error: unknown) {
+        console.error("Error searching:", error);
+        setError(
+          axios.isAxiosError(error)
+          ?error.response?.data?.message ||"Failed to search. Please try again"
+        :"An unexpected error occurred"
+      );
+        setSearchResults([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    const debounce = setTimeout(searchBackend, 300); // Debounce to reduce API calls
+    return () => clearTimeout(debounce);
+  }, [searchQuery, userId]);
+
   const handleTabClick = (tab: "all" | "unread") => {
     setActiveTab(tab);
     setSelectedConversation(null);
     setMessages([]);
+    setSearchQuery("");
+    setSearchResults([]);
   };
 
   const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
@@ -172,22 +234,32 @@ const UserChatbox: React.FC = () => {
 
   const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedConversation) return;
-    try{
-      const adminResponse = await axios.get('${process.env.NEXT_PUBLIC_BACKEND_URL}/admin-id');
-      const adminId = adminResponse.data.adminId;
-    const messageData = {
-      content: newMessage,
-      to: adminId,
-      from: userId,
-      conversationId: selectedConversation.id,
-    };
+    if (!newMessage.trim() || !selectedConversation || !socketRef.current) return;
 
-    socketRef.current?.emit("private message", messageData);
-    setNewMessage("");
-  }catch (error) {
-    console.error("Error getting admin ID:",error);
-  }
+    try {
+      const adminResponse = await axios.get<{ adminId: string }>(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/admin-id`,
+        { withCredentials: true }
+      );
+      const adminId = adminResponse.data.adminId;
+
+      const messageData = {
+        content: newMessage,
+        to: adminId,
+        from: userId,
+        conversationId: selectedConversation.id,
+      };
+
+      socketRef.current.emit("private message", messageData);
+      setNewMessage("");
+      setError(null);
+    } catch (error: unknown) {
+      console.error("Error sending message:", error);
+      setError(
+        axios.isAxiosError(error)
+        ?error.response?.data?.message ||"Failed to send message"
+      :"An unexpected error occurred");
+    }
   };
 
   const scrollToBottom = () => {
@@ -215,9 +287,11 @@ const UserChatbox: React.FC = () => {
 
       <div className="relative z-10 h-full flex flex-col">
         <div className={`p-4 ${isDarkMode ? "bg-[#1E2A32]" : "bg-gray-200"}`}>
-          <div className={`rounded-lg flex items-center pl-4 py-2 ${
-            isDarkMode ? "bg-[#2A3942]" : "bg-white"
-          }`}>
+          <div
+            className={`rounded-lg flex items-center pl-4 py-2 ${
+              isDarkMode ? "bg-[#2A3942]" : "bg-white"
+            }`}
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               className="h-5 w-5 text-gray-500 mr-2"
@@ -225,14 +299,21 @@ const UserChatbox: React.FC = () => {
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
             </svg>
             <input
               type="text"
-              placeholder="Search"
+              placeholder="Search admins or messages..."
               className={`bg-transparent border-none outline-none w-full ${
                 isDarkMode ? "text-gray-400 placeholder-gray-500" : "text-gray-700 placeholder-gray-400"
               }`}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
         </div>
@@ -252,21 +333,37 @@ const UserChatbox: React.FC = () => {
             ))}
           </div>
 
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              <FontAwesomeIcon
-                icon={faBell}
-                className="text-yellow-500 animate-pulse"
-                style={{ fontSize: "20px" }}
-              />
-              <div className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
-              <div className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full"></div>
-            </div>
+         
+            
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto mt-4 text-gray-400">
-          {conversations.length > 0 ? (
+          {isLoading && <p className="text-center text-gray-500">Loading...</p>}
+          {error && <p className="text-center text-red-600">{error}</p>}
+          {searchQuery ? (
+            searchResults.length > 0 ? (
+              searchResults.map((conv) => (
+                <div
+                  key={conv.id}
+                  className={`p-4 hover:bg-[#1E2A32] cursor-pointer ${
+                    selectedConversation?.id === conv.id ? "bg-[#1E2A32]" : ""
+                  }`}
+                  onClick={() => setSelectedConversation(conv)}
+                >
+                  <p className="font-semibold">{conv.user?.fullName || "Admin"}</p>
+                  <p className="text-sm">
+                    {conv.messages[0]?.content || "No messages yet"}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {new Date(conv.updatedAt).toLocaleDateString()}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <p className="text-center">No conversations found</p>
+            )
+          ) : conversations.length > 0 ? (
             conversations.map((conv) => (
               <div
                 key={conv.id}
@@ -275,15 +372,13 @@ const UserChatbox: React.FC = () => {
                 }`}
                 onClick={() => setSelectedConversation(conv)}
               >
-                <p className="font-semibold">{conv.user?.fullName || 'Unknown User'}</p>
+                <p className="font-semibold">{conv.user?.fullName || "Admin"}</p>
                 <p className="text-sm">
                   {conv.messages[0]?.content || "No messages yet"}
                 </p>
-                {conv.createdAt && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    {new Date(conv.createdAt).toLocaleDateString()}
-                  </p>
-                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  {new Date(conv.updatedAt).toLocaleDateString()}
+                </p>
               </div>
             ))
           ) : (
@@ -298,26 +393,37 @@ const UserChatbox: React.FC = () => {
                 <h2 className="text-white font-semibold">Admin Chat</h2>
               </div>
               <div className="flex-1 overflow-y-auto p-4 bg-[#0B141A]">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`mb-4 flex ${
-                      msg.sender.id === userId ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    <div className={`max-w-xs p-3 rounded-lg ${
-                      msg.sender.id === userId ? "bg-[#2A3942] text-white" : "bg-[#1E2A32] text-gray-300"
-                    }`}>
-                      <p>{msg.content}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {new Date(msg.createdAt).toLocaleTimeString()}
-                      </p>
+                {messages.length > 0 ? (
+                  messages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`mb-4 flex ${
+                        msg.senderId === userId ? "justify-end" : "justify-start"
+                      }`}
+                    >
+                      <div
+                        className={`max-w-xs p-3 rounded-lg ${
+                          msg.senderId === userId
+                            ? "bg-[#2A3942] text-white"
+                            : "bg-[#1E2A32] text-gray-300"
+                        }`}
+                      >
+                        <p>{msg.content}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {new Date(msg.createdAt).toLocaleTimeString()}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p className="text-center text-gray-500">No messages yet</p>
+                )}
                 <div ref={messagesEndRef} />
               </div>
-              <form onSubmit={handleSendMessage} className="p-4 bg-[#1E2A32] flex items-center">
+              <form
+                onSubmit={handleSendMessage}
+                className="p-4 bg-[#1E2A32] flex items-center"
+              >
                 <input
                   type="text"
                   value={newMessage}
@@ -335,7 +441,7 @@ const UserChatbox: React.FC = () => {
             </div>
           ) : (
             <div className="flex flex-col h-full justify-center items-center text-gray-500 text-lg">
-            
+              Select a conversation to start chatting
             </div>
           )}
         </div>
@@ -389,7 +495,7 @@ const UserChatbox: React.FC = () => {
           </div>
         )}
       </div>
-    </div>
+   
   );
 };
 
