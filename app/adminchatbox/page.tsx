@@ -1,69 +1,69 @@
 "use client";
-import React, { useState, useEffect, useRef, FormEvent } from "react";
+
+import React, { useState, useEffect, useRef } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faPaperPlane, faGear, faMoon, faSun } from "@fortawesome/free-solid-svg-icons";
+import "@fortawesome/fontawesome-svg-core/styles.css";
+import { config } from "@fortawesome/fontawesome-svg-core";
 import io, { Socket } from "socket.io-client";
 import axios from "axios";
+import toast, { Toaster } from "react-hot-toast";
+
+config.autoAddCss = false;
 
 interface User {
   id: string;
   fullName: string;
   email: string;
-  phoneNumber?: string;
-  role: "USER" | "ADMIN";
+  role: "ADMIN" | "USER";
 }
 
 interface Message {
   id: string;
   content: string;
   senderId: string;
-  createdAt: string;
   sender: User;
+  createdAt: string;
   conversationId: string;
 }
 
 interface Conversation {
   id: string;
-  userId: string;
-  user: User;
+  participant1: { id: string; fullName: string; email: string; role: string };
+  participant2: { id: string; fullName: string; email: string; role: string };
   messages: Message[];
+  unread: number;
   createdAt: string;
   updatedAt: string;
 }
 
-const AdminChatLayout: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"all" | "unread" | "favorites">("all");
+const AdminChatbox: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  const [userId, setUserId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<(User | Conversation)[]>([]);
+  const [adminId, setAdminId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const fetchUserId = async () => {
-      try {
-        setIsLoading(true);
-        const response = await axios.get<{ userId: string }>(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/verify-otp`,
-          { withCredentials: true }
-        );
-        setUserId(response.data.userId);
-      } catch (error: unknown) {
-        let errorMessage = "Failed to authenticate. Please log in again.";
-        if (axios.isAxiosError(error)) {
-          errorMessage = error.response?.data?.message || error.message;
-        } else if (error instanceof Error) {
-          errorMessage = error.message;
-        }
-        console.error("Error fetching userId:", errorMessage);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchUserId();
+    const storedAdminId = localStorage.getItem("userId")?.trim();
+    if (storedAdminId) {
+      setAdminId(storedAdminId);
+    } else {
+      toast.error("No admin ID found. Please log in again.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!adminId) return;
 
     socketRef.current = io(process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5002", {
       withCredentials: true,
@@ -73,73 +73,100 @@ const AdminChatLayout: React.FC = () => {
 
     socket.on("connect", () => {
       console.log("Connected to Socket.IO server");
+      socket.emit("register", { userId: adminId, role: "ADMIN" });
     });
 
     socket.on("private message", (message: Message) => {
       if (message.conversationId === selectedConversation?.id) {
-        setMessages((prev) => [...prev, message]);
+        setMessages((prev) => [...prev.filter((m) => !m.id.startsWith("temp")), message]);
         scrollToBottom();
       }
       setConversations((prev) =>
         prev.map((conv) =>
           conv.id === message.conversationId
-            ? { ...conv, messages: [...conv.messages, message], updatedAt: new Date().toISOString() }
+            ? {
+                ...conv,
+                messages: [...conv.messages, message],
+                unread: conv.id === selectedConversation?.id ? 0 : (conv.unread || 0) + 1,
+              }
             : conv
         )
       );
     });
 
-    socket.on("error", ({ message }: { message: string }) => {
-      console.error("Socket error:", message);
+    socket.on("conversation updated", (updatedConversation: Conversation) => {
+      setConversations((prev) => {
+        const exists = prev.some((conv) => conv.id === updatedConversation.id);
+        if (exists) {
+          return prev.map((conv) =>
+            conv.id === updatedConversation.id ? updatedConversation : conv
+          );
+        }
+        return [updatedConversation, ...prev];
+      });
+      if (selectedConversation?.id === updatedConversation.id) {
+        setSelectedConversation(updatedConversation);
+        setMessages(updatedConversation.messages);
+        scrollToBottom();
+      }
     });
 
-    socket.on("connect_error", (err) => {
+    socket.on("error", ({ message }: { message: string }) => {
+      console.error("Socket error:", message);
+      setError(message);
+      toast.error(message);
+    });
+
+    socket.on("connect_error", (err: Error) => {
       console.error("Socket connection error:", err.message);
+      setError("Failed to connect to server. Please try again.");
+      toast.error("Failed to connect to server");
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [selectedConversation]);
+  }, [adminId, selectedConversation]);
 
   useEffect(() => {
-    if (userId && socketRef.current) {
-      socketRef.current.emit("register", { userId, role: "ADMIN" });
-    }
-  }, [userId]);
+    if (!adminId) return;
 
-  useEffect(() => {
     const fetchConversations = async () => {
-      if (!userId) return;
       try {
         setIsLoading(true);
+        setError(null);
         const response = await axios.get<Conversation[]>(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
-          { params: { userId, tab: activeTab }, withCredentials: true }
+          {
+            params: { userId: adminId, role: "ADMIN" },
+            withCredentials: true,
+          }
         );
-        setConversations(response
-
-.data);
-      } catch (error: unknown) {
-        let errorMessage = "Failed to fetch conversations.";
-        if (axios.isAxiosError(error)) {
-          errorMessage = error.response?.data?.message || error.message || errorMessage;
-        } else if (error instanceof Error) {
-          errorMessage = error.message || errorMessage;
+        setConversations(response.data);
+        if (response.data.length > 0 && !selectedConversation) {
+          setSelectedConversation(response.data[0]);
         }
-        console.error("Error fetching conversations:", errorMessage);
+      } catch (error: unknown) {
+        console.error("Error fetching conversations:", error);
+        const message = axios.isAxiosError(error)
+          ? error.response?.data?.message || "Failed to fetch conversations"
+          : "An unexpected error occurred";
+        setError(message);
+        toast.error(message);
       } finally {
         setIsLoading(false);
       }
     };
+
     fetchConversations();
-  }, [userId, activeTab]);
+  }, [adminId, selectedConversation]);
 
   useEffect(() => {
+    if (!selectedConversation) return;
+
     const fetchMessages = async () => {
-      if (!selectedConversation) return;
       try {
-        setIsLoading(true);
+        setError(null);
         const response = await axios.get<Message[]>(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages`,
           {
@@ -149,103 +176,189 @@ const AdminChatLayout: React.FC = () => {
         );
         setMessages(response.data);
         scrollToBottom();
+
+        if (selectedConversation.unread > 0) {
+          await axios.post(
+            `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations/${selectedConversation.id}/read`,
+            {},
+            { withCredentials: true }
+          );
+          setConversations((prev) =>
+            prev.map((conv) =>
+              conv.id === selectedConversation.id ? { ...conv, unread: 0 } : conv
+            )
+          );
+          socketRef.current?.emit("conversation opened", { conversationId: selectedConversation.id });
+        }
       } catch (error: unknown) {
         console.error("Error fetching messages:", error);
-      } finally {
-        setIsLoading(false);
+        const message = axios.isAxiosError(error)
+          ? error.response?.data?.message || "Failed to fetch messages"
+          : "An unexpected error occurred";
+        setError(message);
+        toast.error(message);
       }
     };
+
     fetchMessages();
   }, [selectedConversation]);
 
   useEffect(() => {
+    if (!searchQuery.trim() || !adminId) {
+      setSearchResults([]);
+      return;
+    }
+
     const searchBackend = async () => {
-      if (!searchQuery.trim() || !userId) {
-        setSearchResults([]);
-        return;
-      }
       try {
         setIsLoading(true);
-        const response = await axios.get<(User | Conversation)[]>(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/search`,
-          {
-            params: { query: searchQuery, userId },
-            withCredentials: true,
-          }
-        );
-        setSearchResults(response.data);
+        setError(null);
+        const [convRes, userRes] = await Promise.all([
+          axios.get<Conversation[]>(
+            `${process.env.NEXT_PUBLIC_BACKEND_URL}/search/conversations`,
+            {
+              params: { query: searchQuery, userId: adminId, role: "ADMIN" },
+              withCredentials: true,
+            }
+          ),
+          axios.get<User[]>(
+            `${process.env.NEXT_PUBLIC_BACKEND_URL}/search/users`,
+            {
+              params: { query: searchQuery, excludeUserId: adminId },
+              withCredentials: true,
+            }
+          ),
+        ]);
+        setSearchResults([...convRes.data, ...userRes.data]);
       } catch (error: unknown) {
         console.error("Error searching:", error);
+        const message = axios.isAxiosError(error)
+          ? error.response?.data?.message || "Failed to search"
+          : "An unexpected error occurred";
+        setError(message);
+        toast.error(message);
         setSearchResults([]);
       } finally {
         setIsLoading(false);
       }
     };
+
     const debounce = setTimeout(searchBackend, 300);
     return () => clearTimeout(debounce);
-  }, [searchQuery, userId]);
+  }, [searchQuery, adminId]);
 
-  const createNewConversation = async (userId: string) => {
+  const createNewConversation = async (otherUserId: string) => {
     try {
-      setIsLoading(true);
-      const response = await axios.post<Conversation>(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
-        { userId },
-        { withCredentials: true }
+      setIsCreating(true);
+      setError(null);
+
+      console.log("Creating conversation with:", { adminId, otherUserId });
+
+      const existingConversation = conversations.find(
+        (conv) =>
+          (conv.participant1.id === adminId && conv.participant2.id === otherUserId) ||
+          (conv.participant1.id === otherUserId && conv.participant2.id === adminId)
       );
-      setConversations((prev) => [response.data, ...prev]);
-      setSelectedConversation(response.data);
+
+      let conversation: Conversation;
+      if (existingConversation) {
+        conversation = existingConversation;
+      } else {
+        const response = await axios.post<Conversation>(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
+          { participant1Id: adminId, participant2Id: otherUserId },
+          { withCredentials: true }
+        );
+        conversation = response.data;
+        setConversations((prev) => {
+          if (prev.some((conv) => conv.id === conversation.id)) {
+            return prev;
+          }
+          return [conversation, ...prev];
+        });
+      }
+
+      setSelectedConversation(conversation);
       setSearchQuery("");
       setSearchResults([]);
+      toast.success("Conversation selected or started!");
     } catch (error: unknown) {
       console.error("Error creating conversation:", error);
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.message || "Failed to create conversation"
+        : "An unexpected error occurred";
+      setError(message);
+      toast.error(message);
     } finally {
-      setIsLoading(false);
+      setIsCreating(false);
     }
   };
 
-  const handleTabClick = (tab: "all" | "unread" | "favorites") => {
-    setActiveTab(tab);
-    setSelectedConversation(null);
-    setMessages([]);
-    setSearchQuery("");
-    setSearchResults([]);
-  };
-
-  const handleConversationClick = (conversation: Conversation) => {
-    setSelectedConversation(conversation);
-    setSearchQuery("");
-    setSearchResults([]);
-  };
-
-  const handleSendMessage = async (e: FormEvent) => {
+  const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedConversation || !socketRef.current) return;
 
-    try {
-      const messageData = {
-        content: newMessage,
-        to: selectedConversation.userId,
-        from: userId,
-        conversationId: selectedConversation.id,
-      };
+    const optimisticMessage: Message = {
+      id: `temp-${Date.now()}`,
+      content: newMessage,
+      senderId: adminId,
+      sender: { id: adminId, fullName: "Admin", email: "", role: "ADMIN" },
+      createdAt: new Date().toISOString(),
+      conversationId: selectedConversation.id,
+    };
 
-      socketRef.current.emit("private message", messageData);
-      setNewMessage("");
-    } catch (error: unknown) {
-      console.error("Error sending message:", error);
-    }
+    const otherUserId =
+      selectedConversation.participant1.id === adminId
+        ? selectedConversation.participant2.id
+        : selectedConversation.participant1.id;
+
+    socketRef.current.emit("private message", {
+      content: newMessage,
+      to: otherUserId,
+      from: adminId,
+      conversationId: selectedConversation.id,
+    });
+
+    setMessages((prev) => [...prev, optimisticMessage]);
+    setNewMessage("");
+    scrollToBottom();
   };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  const toggleDarkMode = () => {
+    setIsDarkMode((prev) => {
+      const newMode = !prev;
+      localStorage.setItem("theme", newMode ? "dark" : "light");
+      return newMode;
+    });
+  };
+
   return (
-    <div className="flex h-screen w-screen bg-[#000000]">
-      <div className="w-full max-w-xs bg-[#121B22] flex flex-col border-r border-[#222E35]">
-        <div className="p-4 bg-[#1E2A32]">
-          <div className="bg-[#2A3942] rounded-lg flex items-center pl-4 py-2">
+    <div
+      className={`h-screen w-full overflow-hidden relative ${
+        isDarkMode ? "text-gray-300 bg-gray-900" : "text-gray-800 bg-gray-100"
+      }`}
+      style={{
+        fontFamily: "sans-serif",
+        backgroundImage: "url('/logo_white.svg')",
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+        backgroundBlendMode: isDarkMode ? "overlay" : "soft-light",
+      }}
+    >
+      <Toaster position="top-right" />
+      <div className="relative z-10 h-full flex">
+        {/* Sidebar for conversations */}
+        <div className="w-1/3 border-r border-gray-300 dark:border-gray-700 p-4 overflow-y-auto">
+          <div
+            className={`rounded-lg flex items-center pl-4 py-2 mb-4 ${
+              isDarkMode ? "bg-gray-700" : "bg-gray-200"
+            }`}
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               className="h-5 w-5 text-gray-500 mr-2"
@@ -262,162 +375,256 @@ const AdminChatLayout: React.FC = () => {
             </svg>
             <input
               type="text"
-              placeholder="Search users, emails, or messages..."
-              className="bg-transparent border-none outline-none text-gray-400 placeholder-gray-500 w-full"
+              placeholder="Search users or conversations..."
+              className={`bg-transparent border-none outline-none w-full ${
+                isDarkMode ? "text-gray-300 placeholder-gray-500" : "text-gray-700 placeholder-gray-400"
+              }`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-        </div>
 
-        <div className="flex items-center px-4 mt-2 space-x-2">
-          {(["all", "unread", "favorites"] as const).map((tab) => (
-            <button
-              key={tab}
-              className={`rounded-full px-4 py-2 text-sm font-semibold focus:outline-none ${
-                activeTab === tab ? "bg-[#2A3942] text-white" : "text-gray-400"
-              }`}
-              onClick={() => handleTabClick(tab)}
-            >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex-1 overflow-y-auto mt-4 text-gray-400">
           {isLoading && <p className="text-center text-gray-500">Loading...</p>}
+          {isCreating && <p className="text-center text-gray-500">Creating conversation...</p>}
+          {error && <p className="text-center text-red-500">{error}</p>}
           {searchQuery ? (
             searchResults.length > 0 ? (
-              searchResults.map((result) => {
-                const isUser = "role" in result;
-                const existingConversation = isUser
-                  ? conversations.find((conv) => conv.userId === result.id)
-                  : result;
-
-                return (
+              searchResults.map((result) =>
+                "role" in result ? (
                   <div
-                    key={isUser ? result.id : result.id}
-                    className={`p-4 hover:bg-[#1E2A32] cursor-pointer ${
-                      selectedConversation?.id === (isUser ? existingConversation?.id : result.id)
-                        ? "bg-[#1E2A32]"
-                        : ""
+                    key={`user-${result.id}`}
+                    className={`p-3 hover:${
+                      isDarkMode ? "bg-gray-700" : "bg-gray-200"
+                    } cursor-pointer rounded-lg`}
+                    onClick={() => createNewConversation(result.id)}
+                  >
+                    <p className="font-semibold">{result.fullName}</p>
+                    <p className="text-sm text-gray-500">{result.email}</p>
+                  </div>
+                ) : (
+                  <div
+                    key={`conversation-${result.id}`}
+                    className={`p-3 hover:${
+                      isDarkMode ? "bg-gray-700" : "bg-gray-200"
+                    } cursor-pointer rounded-lg ${
+                      selectedConversation?.id === result.id ? "bg-blue-200" : ""
                     }`}
-                    onClick={() => {
-                      if (isUser && !existingConversation) {
-                        createNewConversation(result.id);
-                      } else {
-                        handleConversationClick((existingConversation || result) as Conversation);
-                      }
-                    }}
+                    onClick={() => setSelectedConversation(result as Conversation)}
                   >
                     <p className="font-semibold">
-                      {isUser ? result.fullName : result.user.fullName}
+                      {result.participant1.id === adminId
+                        ? result.participant2.fullName
+                        : result.participant1.fullName}
                     </p>
-                    <p className="text-sm">
-                      {isUser ? result.email : result.messages[0]?.content || "No messages yet"}
+                    <p className="text-sm text-gray-500">
+                      {result.messages[0]?.content || "No messages yet"}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {isUser
-                        ? existingConversation
-                          ? `Existing chat - ${existingConversation.messages.length} messages`
-                          : "New conversation"
-                        : new Date(result.createdAt).toLocaleDateString()}
-                    </p>
+                    <div className="flex justify-between items-center mt-1">
+                      <p className="text-xs text-gray-600">
+                        {new Date(result.updatedAt).toLocaleDateString()}
+                      </p>
+                      {result.unread > 0 && (
+                        <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                          {result.unread}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                );
-              })
+                )
+              )
             ) : (
-              <p className="text-center">No users or conversations found</p>
+              <p className="text-center text-gray-500">No results found</p>
             )
           ) : conversations.length > 0 ? (
             conversations.map((conv) => (
               <div
-                key={conv.id}
-                className={`p-4 hover:bg-[#1E2A32] cursor-pointer ${
-                  selectedConversation?.id === conv.id ? "bg-[#1E2A32]" : ""
+                key={`conversation-${conv.id}`}
+                className={`p-3 hover:${
+                  isDarkMode ? "bg-gray-700" : "bg-gray-200"
+                } cursor-pointer rounded-lg ${
+                  selectedConversation?.id === conv.id ? "bg-blue-200" : ""
                 }`}
-                onClick={() => handleConversationClick(conv)}
+                onClick={() => setSelectedConversation(conv)}
               >
-                <p className="font-semibold">{conv.user.fullName}</p>
-                <p className="text-sm">
+                <p className="font-semibold">
+                  {conv.participant1.id === adminId
+                    ? conv.participant2.fullName
+                    : conv.participant1.fullName}
+                </p>
+                <p className="text-sm text-gray-500">
                   {conv.messages[0]?.content || "No messages yet"}
                 </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {new Date(conv.updatedAt).toLocaleDateString()}
-                </p>
+                <div className="flex justify-between items-center mt-1">
+                  <p className="text-xs text-gray-600">
+                    {new Date(conv.updatedAt).toLocaleDateString()}
+                  </p>
+                  {conv.unread > 0 && (
+                    <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                      {conv.unread}
+                    </span>
+                  )}
+                </div>
               </div>
             ))
           ) : (
-            <p className="text-center">No chats available</p>
+            <p className="text-center text-gray-500">No conversations available</p>
           )}
         </div>
-      </div>
 
-      <div className="flex-1 flex flex-col">
-        {selectedConversation ? (
-          <div className="flex flex-col h-full">
-            <div className="p-4 bg-[#1E2A32] border-b border-[#222E35]">
-              <h2 className="text-white font-semibold">
-                {selectedConversation.user.fullName}
-              </h2>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 bg-[#000000]">
-              {messages.length > 0 ? (
-                messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`mb-4 flex ${
-                      msg.senderId === userId ? "justify-end" : "justify-start"
-                    }`}
-                  >
+        {/* Main chat area */}
+        <div className="w-2/3 flex flex-col h-full">
+          {selectedConversation ? (
+            <>
+              <div
+                className={`p-4 border-b ${
+                  isDarkMode ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+                }`}
+              >
+                <p className="font-semibold">
+                  {selectedConversation.participant1.id === adminId
+                    ? selectedConversation.participant2.fullName
+                    : selectedConversation.participant1.fullName}
+                </p>
+                <p className="text-sm text-gray-500">
+                  {selectedConversation.participant1.id === adminId
+                    ? selectedConversation.participant2.email
+                    : selectedConversation.participant1.email}
+                </p>
+              </div>
+              <div
+                className={`flex-1 p-4 overflow-y-auto ${
+                  isDarkMode ? "bg-gray-800" : "bg-gray-50"
+                }`}
+              >
+                {messages.length === 0 ? (
+                  <p className="text-center text-gray-500">No messages yet</p>
+                ) : (
+                  messages.map((message) => (
                     <div
-                      className={`max-w-xs p-3 rounded-lg ${
-                        msg.senderId === userId
-                          ? "bg-[#2A3942] text-white"
-                          : "bg-[#1E2A32] text-gray-300"
+                      key={message.id}
+                      className={`mb-4 flex ${
+                        message.senderId === adminId ? "justify-end" : "justify-start"
                       }`}
                     >
-                      <p>{msg.content}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {new Date(msg.createdAt).toLocaleTimeString()}
-                      </p>
+                      <div
+                        className={`max-w-[70%] p-3 rounded-lg ${
+                          message.senderId === adminId
+                            ? isDarkMode
+                              ? "bg-blue-600 text-white"
+                              : "bg-blue-500 text-white"
+                            : isDarkMode
+                            ? "bg-gray-700 text-gray-200 border border-gray-600"
+                            : "bg-white text-gray-800 border border-gray-200"
+                        }`}
+                      >
+                        <p>{message.content}</p>
+                        <p
+                          className={`text-xs mt-1 text-right ${
+                            message.senderId === adminId
+                              ? "text-gray-200"
+                              : "text-gray-400"
+                          }`}
+                        >
+                          {new Date(message.createdAt).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-gray-500">No messages yet</p>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <form
-              onSubmit={handleSendMessage}
-              className="p-4 bg-[#1E2A32] flex items-center"
-            >
-              <input
-                type="text"
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Type a message..."
-                className="flex-1 bg-[#2A3942] text-white rounded-lg p-3 outline-none"
-              />
-              <button
-                type="submit"
-                className="ml-2 bg-[#005555] text-white rounded-lg px-4 py-2"
+                  ))
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+              <div
+                className={`p-4 border-t ${
+                  isDarkMode ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+                }`}
               >
-                Send
-              </button>
-            </form>
-          </div>
-        ) : (
-          <div className="flex flex-col h-full justify-center items-center text-gray-500 text-lg">
-            Select a conversation to start chatting
-          </div>
-        )}
+                <form onSubmit={sendMessage} className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Type a message..."
+                    className={`flex-1 p-3 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      isDarkMode
+                        ? "bg-gray-700 text-gray-200 border-gray-600"
+                        : "bg-white text-gray-800 border-gray-300"
+                    }`}
+                  />
+                  <button
+                    type="submit"
+                    className={`p-3 ${
+                      isDarkMode
+                        ? "text-blue-400 hover:text-blue-300"
+                        : "text-blue-500 hover:text-blue-600"
+                    }`}
+                    disabled={!newMessage.trim()}
+                  >
+                    <FontAwesomeIcon icon={faPaperPlane} />
+                  </button>
+                </form>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-gray-500">Select a conversation to start chatting</p>
+            </div>
+          )}
+        </div>
+
+        {/* Settings button */}
+        <button
+          onClick={() => setShowSettings(true)}
+          className={`absolute top-4 right-4 p-2 rounded-full ${
+            isDarkMode ? "text-gray-300 hover:bg-gray-700" : "text-gray-600 hover:bg-gray-200"
+          }`}
+        >
+          <FontAwesomeIcon icon={faGear} />
+        </button>
       </div>
+
+      {/* Settings modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div
+            className={`p-6 rounded-lg shadow-xl w-80 ${
+              isDarkMode ? "bg-gray-800 text-gray-200" : "bg-white text-gray-800"
+            }`}
+          >
+            <h3 className="text-lg font-semibold mb-4">Settings</h3>
+            <div className="mb-4 flex items-center justify-between">
+              <label className="block text-sm font-medium">
+                {isDarkMode ? "Dark Mode" : "Light Mode"}
+              </label>
+              <button
+                onClick={toggleDarkMode}
+                className={`p-2 focus:outline-none ${
+                  isDarkMode ? "text-gray-300" : "text-gray-600"
+                }`}
+              >
+                <FontAwesomeIcon
+                  icon={isDarkMode ? faSun : faMoon}
+                  className="text-xl"
+                />
+              </button>
+            </div>
+            <button
+              onClick={() => setShowSettings(false)}
+              className={`w-full py-2 mt-4 rounded-md ${
+                isDarkMode
+                  ? "bg-gray-700 text-gray-200 hover:bg-gray-600"
+                  : "bg-blue-500 text-white hover:bg-blue-600"
+              }`}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-export default AdminChatLayout;
+export default AdminChatbox;

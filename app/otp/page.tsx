@@ -40,7 +40,8 @@ const OTPVerification: React.FC = () => {
         // Set userRole cookie (client-side)
         // This assumes your backend sets an HTTP-only cookie as well for security
         // document.cookie = `userRole=${response.data.role}; path=/; max-age=86400`;
-
+        document.cookie = `userRole=${response.data.role}; path=/; max-age=86400`;
+        localStorage.setItem("userId", response.data.userId);
         // Redirect based on role
         if (response.data.role === "ADMIN") {
           router.push("/admin/chatbox");

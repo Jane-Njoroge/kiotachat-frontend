@@ -1,80 +1,81 @@
 "use client";
 
-import React, { useState, useEffect, useRef, FormEvent } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import axios from "axios";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCog, faMoon, faSun } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft, faPaperPlane, faGear, faMoon, faSun, faSearch } from "@fortawesome/free-solid-svg-icons";
 import "@fortawesome/fontawesome-svg-core/styles.css";
 import { config } from "@fortawesome/fontawesome-svg-core";
 import io, { Socket } from "socket.io-client";
-import axios from "axios";
+import toast, { Toaster } from "react-hot-toast";
 
 config.autoAddCss = false;
 
 interface User {
   id: string;
   fullName: string;
-  email: string;
-  phoneNumber?: string;
-  role: "USER" | "ADMIN";
+  email?: string;
+  role: "ADMIN" | "USER";
 }
 
 interface Message {
   id: string;
   content: string;
-  senderId: string;
-  sender: User;
+  sender: { id: string; fullName: string; role: string };
   createdAt: string;
   conversationId: string;
 }
 
 interface Conversation {
   id: string;
-  userId: string;
-  user: User;
+  participant1: { id: string; fullName: string; email?: string; role: string };
+  participant2: { id: string; fullName: string; email?: string; role: string };
   messages: Message[];
+  unread?: number;
   createdAt: string;
   updatedAt: string;
-  lastMessage?: Message;
 }
 
-const UserChatbox: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"all" | "unread">("all");
-  const [isDarkMode, setIsDarkMode] = useState(true);
-  const [profilePicture, setProfilePicture] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
+const Chatbox: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [newMessage, setNewMessage] = useState("");
-  const [userId, setUserId] = useState("");
+  const [message, setMessage] = useState("");
+  const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Conversation[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const socketRef = useRef<Socket | null>(null);
+  const [searchResults, setSearchResults] = useState<(User | Conversation)[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [activeTab, setActiveTab] = useState<"all" | "unread">("all");
+  const [showSettings, setShowSettings] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
-    const fetchUserId = async () => {
-      try {
-        setIsLoading(true);
-        const response = await axios.get<{ userId: string }>(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/verify-otp`,
-          { withCredentials: true }
-        );
-        setUserId(response.data.userId);
-        setError(null);
-      } catch (error: unknown) {
-        console.error("Error fetching userId:", error);
-        setError(
-          axios.isAxiosError(error)
-          ?error.response?.data?.message ||"Failed to authenticate. Please log in again"
-        :"An unexpected error occurred");
-      } finally {
-        setIsLoading(false);
+    const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
+    if (savedTheme) {
+      setTheme(savedTheme);
+      if (savedTheme === "dark") {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
       }
-    };
-    fetchUserId();
+    }
+  }, []);
+
+  useEffect(() => {
+    const storedUserId = localStorage.getItem("userId");
+    if (!storedUserId) {
+      router.push("/login");
+      return;
+    }
+    setUserId(storedUserId);
+  }, [router]);
+
+  useEffect(() => {
+    if (!userId) return;
 
     socketRef.current = io(process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5002", {
       withCredentials: true,
@@ -84,419 +85,468 @@ const UserChatbox: React.FC = () => {
 
     socket.on("connect", () => {
       console.log("Connected to Socket.IO server");
+      socket.emit("register", { userId, role: "USER" });
     });
 
     socket.on("private message", (message: Message) => {
       if (message.conversationId === selectedConversation?.id) {
-        setMessages((prev) => [...prev, message]);
+        setConversations((prev) =>
+          prev.map((conv) =>
+            conv.id === message.conversationId
+              ? {
+                  ...conv,
+                  messages: [...conv.messages.filter((m) => !m.id.startsWith("temp")), message],
+                  unread: 0,
+                }
+              : conv
+          )
+        );
         scrollToBottom();
+      } else {
+        setConversations((prev) =>
+          prev.map((conv) =>
+            conv.id === message.conversationId
+              ? { ...conv, unread: (conv.unread || 0) + 1 }
+              : conv
+          )
+        );
       }
-      setConversations((prev) =>
-        prev.map((conv) =>
-          conv.id === message.conversationId
-            ? { ...conv, messages: [...conv.messages, message], updatedAt: new Date().toISOString() }
-            : conv
-        )
-      );
+    });
+
+    socket.on("conversation updated", (updatedConversation: Conversation) => {
+      setConversations((prev) => {
+        const exists = prev.some((conv) => conv.id === updatedConversation.id);
+        if (exists) {
+          return prev.map((conv) =>
+            conv.id === updatedConversation.id ? updatedConversation : conv
+          );
+        }
+        return [updatedConversation, ...prev];
+      });
+      if (selectedConversation?.id === updatedConversation.id) {
+        setSelectedConversation(updatedConversation);
+      }
     });
 
     socket.on("error", ({ message }: { message: string }) => {
       console.error("Socket error:", message);
-      setError(message);
+      toast.error(message);
     });
 
-    socket.on("connect_error", (err) => {
+    socket.on("connect_error", (err: Error) => {
       console.error("Socket connection error:", err.message);
-      setError("Failed to connect to server. Please try again.");
+      toast.error("Failed to connect to server");
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [selectedConversation]);
+  }, [userId, selectedConversation]);
 
   useEffect(() => {
-    if (userId && socketRef.current) {
-      socketRef.current.emit("register", { userId, role: "USER" });
-    }
-  }, [userId]);
+    if (!userId) return;
 
-
-  useEffect(() => {
     const fetchConversations = async () => {
-      if (!userId) return;
       try {
-        setIsLoading(true);
         const response = await axios.get<Conversation[]>(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
-          { params: { userId, tab: activeTab }, withCredentials: true }
+          {
+            params: { userId, role: "USER", tab: activeTab },
+            withCredentials: true,
+          }
         );
         setConversations(response.data);
-        if (response.data.length > 0 && !selectedConversation) {
-          setSelectedConversation(response.data[0]);
-        }
-        setError(null);
-      } catch (error: unknown) {
+      } catch (error) {
         console.error("Error fetching conversations:", error);
-        setError(
-          axios.isAxiosError(error)
-         ?error.response?.data?.message || "Failed to fetch conversations"
-        :"An unexpected error occurred");
-      } finally {
-        setIsLoading(false);
+        toast.error("Failed to load conversations");
       }
     };
+
+    const fetchUsers = async () => {
+      try {
+        const response = await axios.get<User[]>(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/users`,
+          {
+            params: {},
+            withCredentials: true,
+          }
+        );
+        setUsers(response.data);
+      } catch (error) {
+        console.error("Error fetching users:", error);
+        toast.error("Failed to load users");
+      }
+    };
+
     fetchConversations();
+    fetchUsers();
   }, [userId, activeTab]);
 
-
   useEffect(() => {
-    const fetchMessages = async () => {
-      if (!selectedConversation) return;
-      try {
-        setIsLoading(true);
-        const response = await axios.get<Message[]>(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages`,
-          {
-            params: { conversationId: selectedConversation.id },
-            withCredentials: true,
-          }
-        );
-        setMessages(response.data);
-        scrollToBottom();
-        setError(null);
-      } catch (error: unknown) {
-        console.error("Error fetching messages:", error);
-        setError(
-          axios.isAxiosError(error)
-          ?error.response?.data?.message ||"Failed to fetch messages"
-        :"An unexpected error occurred");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchMessages();
-  }, [selectedConversation]);
+    if (!searchQuery.trim() || !userId) {
+      setSearchResults([]);
+      return;
+    }
 
-  useEffect(() => {
-    const searchBackend = async () => {
-      if (!searchQuery.trim() || !userId) {
-        setSearchResults([]);
-        return;
-      }
+    const fetchSearch = async () => {
       try {
-        setIsLoading(true);
-        const response = await axios.get<Conversation[]>(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/search`,
-          {
-            params: { query: searchQuery, userId, role: "USER" },
-            withCredentials: true,
-          }
-        );
-        setSearchResults(response.data);
-        setError(null);
-      } catch (error: unknown) {
+        const [convRes, userRes] = await Promise.all([
+          axios.get<Conversation[]>(
+            `${process.env.NEXT_PUBLIC_BACKEND_URL}/search/conversations`,
+            {
+              params: { query: searchQuery, userId, role: "USER" },
+              withCredentials: true,
+            }
+          ),
+          axios.get<User[]>(
+            `${process.env.NEXT_PUBLIC_BACKEND_URL}/search/users`,
+            {
+              params: { query: searchQuery, excludeUserId: userId },
+              withCredentials: true,
+            }
+          ),
+        ]);
+        setSearchResults([...userRes.data, ...convRes.data]);
+      } catch (error) {
         console.error("Error searching:", error);
-        setError(
-          axios.isAxiosError(error)
-          ?error.response?.data?.message ||"Failed to search. Please try again"
-        :"An unexpected error occurred"
-      );
-        setSearchResults([]);
-      } finally {
-        setIsLoading(false);
+        toast.error("Failed to search");
       }
     };
-    const debounce = setTimeout(searchBackend, 300); // Debounce to reduce API calls
+
+    const debounce = setTimeout(fetchSearch, 300);
     return () => clearTimeout(debounce);
   }, [searchQuery, userId]);
 
-  const handleTabClick = (tab: "all" | "unread") => {
-    setActiveTab(tab);
-    setSelectedConversation(null);
-    setMessages([]);
-    setSearchQuery("");
-    setSearchResults([]);
-  };
-
-  const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
-
-  const handleProfilePictureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfilePicture(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSendMessage = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !selectedConversation || !socketRef.current) return;
-
+  const startConversation = async (otherUserId: string) => {
+    if (!userId) return;
     try {
-      const adminResponse = await axios.get<{ adminId: string }>(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/admin-id`,
-        { withCredentials: true }
+      setIsCreating(true);
+
+      console.log("Starting conversation with:", { userId, otherUserId });
+
+      const existingConversation = conversations.find(
+        (conv) =>
+          (conv.participant1.id === userId && conv.participant2.id === otherUserId) ||
+          (conv.participant1.id === otherUserId && conv.participant2.id === userId)
       );
-      const adminId = adminResponse.data.adminId;
 
-      const messageData = {
-        content: newMessage,
-        to: adminId,
-        from: userId,
-        conversationId: selectedConversation.id,
-      };
+      let conversation: Conversation;
+      if (existingConversation) {
+        conversation = existingConversation;
+      } else {
+        const response = await axios.post<Conversation>(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
+          { participant1Id: userId, participant2Id: otherUserId },
+          { withCredentials: true }
+        );
+        conversation = response.data;
+        setConversations((prev) => {
+          if (prev.some((conv) => conv.id === conversation.id)) {
+            return prev;
+          }
+          return [conversation, ...prev];
+        });
+      }
 
-      socketRef.current.emit("private message", messageData);
-      setNewMessage("");
-      setError(null);
-    } catch (error: unknown) {
-      console.error("Error sending message:", error);
-      setError(
-        axios.isAxiosError(error)
-        ?error.response?.data?.message ||"Failed to send message"
-      :"An unexpected error occurred");
+      setSelectedConversation(conversation);
+      setSearchQuery("");
+      setSearchResults([]);
+      toast.success("Conversation selected or started!");
+    } catch (error) {
+      console.error("Error starting conversation:", error);
+      toast.error("Failed to start conversation");
+    } finally {
+      setIsCreating(false);
     }
+  };
+
+  const sendMessage = () => {
+    if (!message.trim() || !selectedConversation || !userId || !socketRef.current) return;
+
+    const optimisticMessage: Message = {
+      id: `temp-${Date.now()}`,
+      content: message,
+      sender: { id: userId, fullName: "User", role: "USER" },
+      createdAt: new Date().toISOString(),
+      conversationId: selectedConversation.id,
+    };
+
+    const otherUserId =
+      selectedConversation.participant1.id === userId
+        ? selectedConversation.participant2.id
+        : selectedConversation.participant1.id;
+
+    socketRef.current.emit("private message", {
+      content: message,
+      to: otherUserId,
+      from: userId,
+      conversationId: selectedConversation.id,
+    });
+
+    setConversations((prev) =>
+      prev.map((conv) =>
+        conv.id === selectedConversation.id
+          ? { ...conv, messages: [...conv.messages, optimisticMessage], unread: 0 }
+          : conv
+      )
+    );
+    setMessage("");
+    scrollToBottom();
   };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  const handleBack = () => {
+    setSelectedConversation(null);
+  };
+
+  const toggleTheme = () => {
+    const newTheme = theme === "light" ? "dark" : "light";
+    setTheme(newTheme);
+    localStorage.setItem("theme", newTheme);
+    if (newTheme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+    toast.success(`Switched to ${newTheme} mode!`);
+    setShowSettings(false);
+  };
+
   return (
-    <div
-      className={`h-screen w-full overflow-hidden relative ${
-        isDarkMode ? "text-gray-300" : "text-gray-800"
-      }`}
-      style={{
-        fontFamily: "sans-serif",
-        backgroundImage: "url('/logo2.png')",
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        backgroundRepeat: "no-repeat",
-      }}
-    >
-      <div
-        className={`absolute inset-0 ${
-          isDarkMode ? "bg-black bg-opacity-60" : "bg-white bg-opacity-60"
-        }`}
-      ></div>
-
-      <div className="relative z-10 h-full flex flex-col">
-        <div className={`p-4 ${isDarkMode ? "bg-[#1E2A32]" : "bg-gray-200"}`}>
-          <div
-            className={`rounded-lg flex items-center pl-4 py-2 ${
-              isDarkMode ? "bg-[#2A3942]" : "bg-white"
-            }`}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-5 w-5 text-gray-500 mr-2"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-            <input
-              type="text"
-              placeholder="Search admins or messages..."
-              className={`bg-transparent border-none outline-none w-full ${
-                isDarkMode ? "text-gray-400 placeholder-gray-500" : "text-gray-700 placeholder-gray-400"
-              }`}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col bg-[url('/logo_white.svg')] bg-no-repeat bg-center bg-contain">
+      <Toaster position="top-right" />
+      {selectedConversation ? (
+        <div className="flex-1 flex flex-col">
+          <div className="bg-white dark:bg-gray-800 p-4 border-b border-gray-200 dark:border-gray-700 flex items-center space-x-3">
+            <button onClick={handleBack} className="text-gray-600 dark:text-gray-300">
+              <FontAwesomeIcon icon={faArrowLeft} />
+            </button>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              {selectedConversation.participant1.id === userId
+                ? selectedConversation.participant2.fullName
+                : selectedConversation.participant1.fullName}
+            </p>
           </div>
-        </div>
-
-        <div className="flex items-center justify-between px-4 mt-2">
-          <div className="flex items-center space-x-2">
-            {(["all", "unread"] as const).map((tab) => (
-              <button
-                key={tab}
-                className={`rounded-full px-4 py-2 text-sm font-semibold focus:outline-none ${
-                  activeTab === tab ? "bg-[#2A3942] text-white" : "text-gray-400"
-                }`}
-                onClick={() => handleTabClick(tab)}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </button>
-            ))}
-          </div>
-
-         
-            
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto mt-4 text-gray-400">
-          {isLoading && <p className="text-center text-gray-500">Loading...</p>}
-          {error && <p className="text-center text-red-600">{error}</p>}
-          {searchQuery ? (
-            searchResults.length > 0 ? (
-              searchResults.map((conv) => (
-                <div
-                  key={conv.id}
-                  className={`p-4 hover:bg-[#1E2A32] cursor-pointer ${
-                    selectedConversation?.id === conv.id ? "bg-[#1E2A32]" : ""
-                  }`}
-                  onClick={() => setSelectedConversation(conv)}
-                >
-                  <p className="font-semibold">{conv.user?.fullName || "Admin"}</p>
-                  <p className="text-sm">
-                    {conv.messages[0]?.content || "No messages yet"}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {new Date(conv.updatedAt).toLocaleDateString()}
-                  </p>
-                </div>
-              ))
+          <div className="flex-1 p-4 overflow-y-auto bg-gray-50 dark:bg-gray-800">
+            {selectedConversation.messages.length === 0 ? (
+              <p className="text-center text-gray-500 dark:text-gray-400">Start chatting</p>
             ) : (
-              <p className="text-center">No conversations found</p>
-            )
-          ) : conversations.length > 0 ? (
-            conversations.map((conv) => (
-              <div
-                key={conv.id}
-                className={`p-4 hover:bg-[#1E2A32] cursor-pointer ${
-                  selectedConversation?.id === conv.id ? "bg-[#1E2A32]" : ""
-                }`}
-                onClick={() => setSelectedConversation(conv)}
-              >
-                <p className="font-semibold">{conv.user?.fullName || "Admin"}</p>
-                <p className="text-sm">
-                  {conv.messages[0]?.content || "No messages yet"}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {new Date(conv.updatedAt).toLocaleDateString()}
-                </p>
-              </div>
-            ))
-          ) : (
-            <p className="text-center">No chats available</p>
-          )}
-        </div>
-
-        <div className="flex-grow flex flex-col p-4">
-          {selectedConversation ? (
-            <div className="flex flex-col h-full">
-              <div className="p-4 bg-[#1E2A32] border-b border-[#222E35]">
-                <h2 className="text-white font-semibold">Admin Chat</h2>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 bg-[#0B141A]">
-                {messages.length > 0 ? (
-                  messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`mb-4 flex ${
-                        msg.senderId === userId ? "justify-end" : "justify-start"
+              selectedConversation.messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`mb-4 flex ${
+                    msg.sender.id === userId ? "justify-end" : "justify-start"
+                  }`}
+                >
+                  <div
+                    className={`max-w-[70%] p-3 rounded-lg ${
+                      msg.sender.id === userId
+                        ? "bg-[#005555] text-white"
+                        : "bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 dark:text-gray-100"
+                    }`}
+                  >
+                    <p className="text-sm">{msg.content}</p>
+                    <p
+                      className={`text-xs mt-1 text-right ${
+                        msg.sender.id === userId ? "text-gray-200" : "text-gray-400 dark:text-gray-500"
                       }`}
                     >
-                      <div
-                        className={`max-w-xs p-3 rounded-lg ${
-                          msg.senderId === userId
-                            ? "bg-[#2A3942] text-white"
-                            : "bg-[#1E2A32] text-gray-300"
-                        }`}
-                      >
-                        <p>{msg.content}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {new Date(msg.createdAt).toLocaleTimeString()}
-                        </p>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-center text-gray-500">No messages yet</p>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-              <form
-                onSubmit={handleSendMessage}
-                className="p-4 bg-[#1E2A32] flex items-center"
+                      {new Date(msg.createdAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+          <div className="bg-white dark:bg-gray-800 p-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Type a message..."
+                className="flex-1 p-3 border border-gray-300 dark:border-gray-600 rounded-full focus:outline-none focus:ring-2 focus:ring-[#005555] bg-white dark:bg-gray-700 dark:text-gray-100"
+                onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+              />
+              <button
+                onClick={sendMessage}
+                className="p-3 text-[#005555] dark:text-[#00a1a1] hover:text-[#004444] dark:hover:text-[#008080]"
+                disabled={!message.trim()}
               >
+                <FontAwesomeIcon icon={faPaperPlane} />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col">
+          <div className="p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <div className="flex-1 max-w-md">
+              <div className="relative">
                 <input
                   type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Type a message..."
-                  className="flex-1 bg-[#2A3942] text-white rounded-lg p-3 outline-none"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search users or conversations..."
+                  className="w-full p-3 pl-10 border border-gray-300 dark:border-gray-600 rounded-full focus:outline-none focus:ring-2 focus:ring-[#005555] bg-white dark:bg-gray-700 dark:text-gray-100"
                 />
-                <button
-                  type="submit"
-                  className="ml-2 bg-[#005555] text-white rounded-lg px-4 py-2"
-                >
-                  Send
-                </button>
-              </form>
-            </div>
-          ) : (
-            <div className="flex flex-col h-full justify-center items-center text-gray-500 text-lg">
-              Select a conversation to start chatting
-            </div>
-          )}
-        </div>
-
-        <div className="absolute bottom-4 right-4">
-          <button
-            className="flex items-center space-x-2 hover:text-gray-300 focus:outline-none"
-            onClick={() => setShowSettings(!showSettings)}
-          >
-            <span className="text-sm font-semibold">Settings</span>
-            <FontAwesomeIcon icon={faCog} className="text-gray-500" />
-          </button>
-        </div>
-
-        {showSettings && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white text-gray-800 p-6 rounded-lg shadow-xl w-80 z-20">
-            <h3 className="text-lg font-semibold mb-4">Settings</h3>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700">
-                Profile Picture
-              </label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleProfilePictureChange}
-                className="mt-1 block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-              />
-              <img
-                src={profilePicture ?? "/profilePicture.png"}
-                alt="Profile"
-                className="mt-2 rounded-full w-16 h-16 object-cover"
-              />
-            </div>
-            <div className="mb-4 flex items-center justify-between">
-              <label className="block text-sm font-medium text-gray-700">
-                {isDarkMode ? "Dark Mode" : "Light Mode"}
-              </label>
-              <button onClick={toggleDarkMode} className="focus:outline-none">
                 <FontAwesomeIcon
-                  icon={isDarkMode ? faMoon : faSun}
-                  className="text-xl text-gray-500"
+                  icon={faSearch}
+                  className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                />
+              </div>
+              {searchResults.length > 0 && (
+                <div className="absolute mt-2 w-full max-w-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg z-10">
+                  {isCreating && <p className="p-3 text-gray-500 dark:text-gray-400">Creating conversation...</p>}
+                  {searchResults.map((result) =>
+                    "role" in result ? (
+                      <button
+                        key={`user-${result.id}`}
+                        onClick={() => startConversation(result.id)}
+                        className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-900 dark:text-gray-100"
+                      >
+                        {result.fullName} ({result.role})
+                      </button>
+                    ) : (
+                      <button
+                        key={`conversation-${result.id}`}
+                        onClick={() => setSelectedConversation(result as Conversation)}
+                        className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-900 dark:text-gray-100"
+                      >
+                        {(result.participant1.id === userId
+                          ? result.participant2.fullName
+                          : result.participant1.fullName) || "User"} (Conversation)
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+            <button onClick={() => setShowSettings(true)} className="text-gray-600 dark:text-gray-300">
+              <FontAwesomeIcon icon={faGear} />
+            </button>
+          </div>
+          <div className="flex items-center justify-center space-x-2 px-4 py-2 bg-white dark:bg-gray-800">
+            <button
+              onClick={() => setActiveTab("all")}
+              className={`px-4 py-2 rounded-md text-sm font-semibold ${
+                activeTab === "all"
+                  ? "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  : "text-gray-500 dark:text-gray-400"
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setActiveTab("unread")}
+              className={`px-4 py-2 rounded-md text-sm font-semibold ${
+                activeTab === "unread"
+                  ? "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  : "text-gray-500 dark:text-gray-400"
+              }`}
+            >
+              Unread
+            </button>
+          </div>
+          <div className="p-4 bg-white dark:bg-gray-800">
+            <div className="space-y-2">
+              {users.map((user) => (
+                <button
+                  key={user.id}
+                  onClick={() => startConversation(user.id)}
+                  className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
+                >
+                  {user.fullName} ({user.role})
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-gray-900">
+            {conversations.length === 0 ? (
+              <p className="text-center text-gray-500 dark:text-gray-400 mt-4">
+                No conversations yet
+              </p>
+            ) : (
+              conversations.map((conv) => (
+                <div
+                  key={conv.id}
+                  onClick={() => {
+                    setSelectedConversation(conv);
+                    if (conv.unread && conv.unread > 0 && socketRef.current) {
+                      socketRef.current.emit("conversation opened", { conversationId: conv.id });
+                    }
+                  }}
+                  className="p-4 border-b border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                >
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {conv.participant1.id === userId
+                      ? conv.participant2.fullName
+                      : conv.participant1.fullName}
+                  </p>
+                  {conv.messages.length > 0 && (
+                    <>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                        {conv.messages[conv.messages.length - 1].content}
+                      </p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                        {new Date(
+                          conv.messages[conv.messages.length - 1].createdAt
+                        ).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </>
+                  )}
+                  {conv.unread && conv.unread > 0 && (
+                    <span className="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                      {conv.unread}
+                    </span>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-80">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">
+              Settings
+            </h3>
+            <div className="mb-4 flex items-center justify-between">
+              <label className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                {theme === "light" ? "Light Mode" : "Dark Mode"}
+              </label>
+              <button
+                onClick={toggleTheme}
+                className="p-2 focus:outline-none text-gray-600 dark:text-gray-300"
+              >
+                <FontAwesomeIcon
+                  icon={theme === "light" ? faMoon : faSun}
+                  className="text-xl"
                 />
               </button>
             </div>
             <button
               onClick={() => setShowSettings(false)}
-              className="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+              className="w-full py-2 mt-4 bg-[#005555] dark:bg-gray-700 text-white rounded-md hover:bg-[#004444] dark:hover:bg-gray-600"
             >
               Close
             </button>
           </div>
-        )}
-      </div>
-   
+        </div>
+      )}
+    </div>
   );
 };
 
-export default UserChatbox;
+export default Chatbox;
