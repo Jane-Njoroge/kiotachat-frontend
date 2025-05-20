@@ -41,7 +41,6 @@ const Chatbox: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [message, setMessage] = useState("");
-  const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<(User | Conversation)[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
@@ -89,42 +88,66 @@ const Chatbox: React.FC = () => {
     });
 
     socket.on("private message", (message: Message) => {
-      if (message.conversationId === selectedConversation?.id) {
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === message.conversationId
-              ? {
-                  ...conv,
-                  messages: [...conv.messages.filter((m) => !m.id.startsWith("temp")), message],
-                  unread: 0,
-                }
-              : conv
-          )
+      const normalizedMessage = {
+        ...message,
+        id: String(message.id),
+        sender: { ...message.sender, id: String(message.sender.id) },
+      };
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === message.conversationId
+            ? {
+                ...conv,
+                messages: [
+                  ...conv.messages.filter((m) => !m.id.startsWith("temp")),
+                  normalizedMessage,
+                ],
+                unread: selectedConversation?.id === message.conversationId ? 0 : (conv.unread || 0) + 1,
+                updatedAt: new Date().toISOString(),
+              }
+            : conv
+        )
+      );
+      if (selectedConversation?.id === message.conversationId) {
+        setSelectedConversation((prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: [
+                  ...prev.messages.filter((m) => !m.id.startsWith("temp")),
+                  normalizedMessage,
+                ],
+                unread: 0,
+              }
+            : prev
         );
         scrollToBottom();
-      } else {
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === message.conversationId
-              ? { ...conv, unread: (conv.unread || 0) + 1 }
-              : conv
-          )
-        );
       }
     });
 
     socket.on("conversation updated", (updatedConversation: Conversation) => {
+      const normalizedConversation = {
+        ...updatedConversation,
+        id: String(updatedConversation.id),
+        participant1: { ...updatedConversation.participant1, id: String(updatedConversation.participant1.id) },
+        participant2: { ...updatedConversation.participant2, id: String(updatedConversation.participant2.id) },
+        messages: updatedConversation.messages.map((msg) => ({
+          ...msg,
+          id: String(msg.id),
+          sender: { ...msg.sender, id: String(msg.sender.id) },
+        })),
+      };
       setConversations((prev) => {
-        const exists = prev.some((conv) => conv.id === updatedConversation.id);
+        const exists = prev.some((conv) => conv.id === normalizedConversation.id);
         if (exists) {
           return prev.map((conv) =>
-            conv.id === updatedConversation.id ? updatedConversation : conv
+            conv.id === normalizedConversation.id ? normalizedConversation : conv
           );
         }
-        return [updatedConversation, ...prev];
+        return [normalizedConversation, ...prev];
       });
-      if (selectedConversation?.id === updatedConversation.id) {
-        setSelectedConversation(updatedConversation);
+      if (selectedConversation?.id === normalizedConversation.id) {
+        setSelectedConversation(normalizedConversation);
       }
     });
 
@@ -155,31 +178,25 @@ const Chatbox: React.FC = () => {
             withCredentials: true,
           }
         );
-        setConversations(response.data);
+        const normalizedConversations = response.data.map((conv) => ({
+          ...conv,
+          id: String(conv.id),
+          participant1: { ...conv.participant1, id: String(conv.participant1.id) },
+          participant2: { ...conv.participant2, id: String(conv.participant2.id) },
+          messages: conv.messages.map((msg) => ({
+            ...msg,
+            id: String(msg.id),
+            sender: { ...msg.sender, id: String(msg.sender.id) },
+          })),
+        }));
+        setConversations(normalizedConversations);
       } catch (error) {
         console.error("Error fetching conversations:", error);
         toast.error("Failed to load conversations");
       }
     };
 
-    const fetchUsers = async () => {
-      try {
-        const response = await axios.get<User[]>(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/users`,
-          {
-            params: {},
-            withCredentials: true,
-          }
-        );
-        setUsers(response.data);
-      } catch (error) {
-        console.error("Error fetching users:", error);
-        toast.error("Failed to load users");
-      }
-    };
-
     fetchConversations();
-    fetchUsers();
   }, [userId, activeTab]);
 
   useEffect(() => {
@@ -206,7 +223,22 @@ const Chatbox: React.FC = () => {
             }
           ),
         ]);
-        setSearchResults([...userRes.data, ...convRes.data]);
+        const normalizedUsers = userRes.data.map((user) => ({
+          ...user,
+          id: String(user.id),
+        }));
+        const normalizedConversations = convRes.data.map((conv) => ({
+          ...conv,
+          id: String(conv.id),
+          participant1: { ...conv.participant1, id: String(conv.participant1.id) },
+          participant2: { ...conv.participant2, id: String(conv.participant2.id) },
+          messages: conv.messages.map((msg) => ({
+            ...msg,
+            id: String(msg.id),
+            sender: { ...msg.sender, id: String(msg.sender.id) },
+          })),
+        }));
+        setSearchResults([...normalizedUsers, ...normalizedConversations]);
       } catch (error) {
         console.error("Error searching:", error);
         toast.error("Failed to search");
@@ -217,11 +249,47 @@ const Chatbox: React.FC = () => {
     return () => clearTimeout(debounce);
   }, [searchQuery, userId]);
 
+  const fetchMessages = async (conversationId: string) => {
+    try {
+      const response = await axios.get<Message[]>(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages`,
+        {
+          params: { conversationId },
+          withCredentials: true,
+        }
+      );
+      return response.data.map((msg) => ({
+        ...msg,
+        id: String(msg.id),
+        sender: { ...msg.sender, id: String(msg.sender.id) },
+      }));
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+      toast.error("Failed to load messages");
+      return [];
+    }
+  };
+
+  const handleSelectConversation = async (conv: Conversation) => {
+    const messages = await fetchMessages(conv.id);
+    const updatedConversation = { ...conv, messages };
+    setSelectedConversation(updatedConversation);
+    setConversations((prev) =>
+      prev.map((c) => (c.id === conv.id ? { ...c, messages, unread: 0 } : c))
+    );
+    if (conv.unread && conv.unread > 0 && socketRef.current) {
+      socketRef.current.emit("conversation opened", { conversationId: conv.id });
+    }
+    scrollToBottom();
+  };
+
   const startConversation = async (otherUserId: string) => {
-    if (!userId) return;
+    if (!userId || isNaN(parseInt(userId, 10)) || isNaN(parseInt(otherUserId, 10))) {
+      toast.error("Invalid user ID");
+      return;
+    }
     try {
       setIsCreating(true);
-
       console.log("Starting conversation with:", { userId, otherUserId });
 
       const existingConversation = conversations.find(
@@ -230,31 +298,52 @@ const Chatbox: React.FC = () => {
           (conv.participant1.id === otherUserId && conv.participant2.id === userId)
       );
 
-      let conversation: Conversation;
       if (existingConversation) {
-        conversation = existingConversation;
+        await handleSelectConversation(existingConversation);
       } else {
         const response = await axios.post<Conversation>(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
-          { participant1Id: userId, participant2Id: otherUserId },
+          { participant1Id: parseInt(userId, 10), participant2Id: parseInt(otherUserId, 10) },
           { withCredentials: true }
         );
-        conversation = response.data;
+        const conversation = {
+          ...response.data,
+          id: String(response.data.id),
+          participant1: { ...response.data.participant1, id: String(response.data.participant1.id) },
+          participant2: { ...response.data.participant2, id: String(response.data.participant2.id) },
+          messages: response.data.messages.map((msg) => ({
+            ...msg,
+            id: String(msg.id),
+            sender: { ...msg.sender, id: String(msg.sender.id) },
+          })),
+        };
         setConversations((prev) => {
           if (prev.some((conv) => conv.id === conversation.id)) {
             return prev;
           }
           return [conversation, ...prev];
         });
+        await handleSelectConversation(conversation);
       }
-
-      setSelectedConversation(conversation);
       setSearchQuery("");
       setSearchResults([]);
       toast.success("Conversation selected or started!");
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error starting conversation:", error);
-      toast.error("Failed to start conversation");
+      let message = "Failed to start conversation";
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "response" in error &&
+        typeof (error as { response?: unknown }).response === "object" &&
+        (error as { response?: { data?: { message?: string } } }).response &&
+        "data" in (error as { response?: { data?: unknown } }).response!
+      ) {
+        message =
+          ((error as { response: { data?: { message?: string } } }).response.data?.message) ||
+          message;
+      }
+      toast.error(message);
     } finally {
       setIsCreating(false);
     }
@@ -286,9 +375,24 @@ const Chatbox: React.FC = () => {
     setConversations((prev) =>
       prev.map((conv) =>
         conv.id === selectedConversation.id
-          ? { ...conv, messages: [...conv.messages, optimisticMessage], unread: 0 }
+          ? {
+              ...conv,
+              messages: [...conv.messages, optimisticMessage],
+              unread: 0,
+              updatedAt: new Date().toISOString(),
+            }
           : conv
       )
+    );
+    setSelectedConversation((prev) =>
+      prev
+        ? {
+            ...prev,
+            messages: [...prev.messages, optimisticMessage],
+            unread: 0,
+            updatedAt: new Date().toISOString(),
+          }
+        : prev
     );
     setMessage("");
     scrollToBottom();
@@ -311,12 +415,11 @@ const Chatbox: React.FC = () => {
     } else {
       document.documentElement.classList.remove("dark");
     }
-    toast.success(`Switched to ${newTheme} mode!`);
     setShowSettings(false);
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col bg-[url('/logo_white.svg')] bg-no-repeat bg-center bg-contain">
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col bg-[url('/logo.white.svg')] bg-no-repeat bg-center bg-contain">
       <Toaster position="top-right" />
       {selectedConversation ? (
         <div className="flex-1 flex flex-col">
@@ -337,21 +440,27 @@ const Chatbox: React.FC = () => {
               selectedConversation.messages.map((msg) => (
                 <div
                   key={msg.id}
-                  className={`mb-4 flex ${
+                  className={`mb-3 flex w-full ${
                     msg.sender.id === userId ? "justify-end" : "justify-start"
                   }`}
                 >
                   <div
-                    className={`max-w-[70%] p-3 rounded-lg ${
+                    className={`max-w-[60%] p-3 rounded-lg shadow-sm ${
                       msg.sender.id === userId
-                        ? "bg-[#005555] text-white"
-                        : "bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 dark:text-gray-100"
+                        ? "bg-green-500 text-white rounded-br-none"
+                        : theme === "dark"
+                        ? "bg-gray-700 text-gray-200 rounded-bl-none border border-gray-600"
+                        : "bg-gray-200 text-gray-800 rounded-bl-none"
                     }`}
                   >
-                    <p className="text-sm">{msg.content}</p>
+                    <p className="text-sm leading-relaxed">{msg.content}</p>
                     <p
                       className={`text-xs mt-1 text-right ${
-                        msg.sender.id === userId ? "text-gray-200" : "text-gray-400 dark:text-gray-500"
+                        msg.sender.id === userId
+                          ? "text-gray-100"
+                          : theme === "dark"
+                          ? "text-gray-400"
+                          : "text-gray-600"
                       }`}
                     >
                       {new Date(msg.createdAt).toLocaleTimeString([], {
@@ -417,12 +526,12 @@ const Chatbox: React.FC = () => {
                     ) : (
                       <button
                         key={`conversation-${result.id}`}
-                        onClick={() => setSelectedConversation(result as Conversation)}
+                        onClick={() => handleSelectConversation(result as Conversation)}
                         className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-900 dark:text-gray-100"
                       >
-                        {(result.participant1.id === userId
-                          ? result.participant2.fullName
-                          : result.participant1.fullName) || "User"} (Conversation)
+                        {((result as Conversation).participant1.id === userId
+                          ? (result as Conversation).participant2.fullName
+                          : (result as Conversation).participant1.fullName) || "User"} (Conversation)
                       </button>
                     )
                   )}
@@ -455,61 +564,45 @@ const Chatbox: React.FC = () => {
               Unread
             </button>
           </div>
-          <div className="p-4 bg-white dark:bg-gray-800">
-            <div className="space-y-2">
-              {users.map((user) => (
-                <button
-                  key={user.id}
-                  onClick={() => startConversation(user.id)}
-                  className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
-                >
-                  {user.fullName} ({user.role})
-                </button>
-              ))}
-            </div>
-          </div>
           <div className="flex-1 overflow-y-auto bg-gray-100 dark:bg-gray-900">
             {conversations.length === 0 ? (
               <p className="text-center text-gray-500 dark:text-gray-400 mt-4">
-                No conversations yet
+                Search for a user to start a conversation
               </p>
             ) : (
               conversations.map((conv) => (
                 <div
                   key={conv.id}
-                  onClick={() => {
-                    setSelectedConversation(conv);
-                    if (conv.unread && conv.unread > 0 && socketRef.current) {
-                      socketRef.current.emit("conversation opened", { conversationId: conv.id });
-                    }
-                  }}
-                  className="p-4 border-b border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                  onClick={() => handleSelectConversation(conv)}
+                  className="p-4 border-b border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
                 >
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                    {conv.participant1.id === userId
-                      ? conv.participant2.fullName
-                      : conv.participant1.fullName}
-                  </p>
-                  {conv.messages.length > 0 && (
-                    <>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {conv.participant1.id === userId
+                        ? conv.participant2.fullName
+                        : conv.participant1.fullName}
+                    </p>
+                    {conv.messages.length > 0 && (
+                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[200px]">
                         {conv.messages[conv.messages.length - 1].content}
                       </p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        {new Date(
-                          conv.messages[conv.messages.length - 1].createdAt
-                        ).toLocaleTimeString([], {
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {conv.messages.length > 0 && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500">
+                        {new Date(conv.updatedAt).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
                       </p>
-                    </>
-                  )}
-                  {conv.unread && conv.unread > 0 && (
-                    <span className="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
-                      {conv.unread}
-                    </span>
-                  )}
+                    )}
+                    {conv.unread && conv.unread > 0 && (
+                      <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                        {conv.unread}
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))
             )}

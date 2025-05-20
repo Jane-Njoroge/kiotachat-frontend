@@ -55,10 +55,11 @@ const AdminChatbox: React.FC = () => {
 
   useEffect(() => {
     const storedAdminId = localStorage.getItem("userId")?.trim();
-    if (storedAdminId) {
+    if (storedAdminId && !isNaN(parseInt(storedAdminId, 10))) {
       setAdminId(storedAdminId);
     } else {
-      toast.error("No admin ID found. Please log in again.");
+      setError("No valid admin ID found. Please log in again.");
+      toast.error("No valid admin ID found. Please log in again.");
     }
   }, []);
 
@@ -77,8 +78,22 @@ const AdminChatbox: React.FC = () => {
     });
 
     socket.on("private message", (message: Message) => {
+      if (!message?.conversationId) {
+        console.error("Invalid message received:", message);
+        return;
+      }
+      const normalizedMessage = {
+        ...message,
+        id: String(message.id),
+        senderId: String(message.senderId),
+        sender: { ...message.sender, id: String(message.sender.id) },
+      };
+      console.log("Received message:", normalizedMessage);
       if (message.conversationId === selectedConversation?.id) {
-        setMessages((prev) => [...prev.filter((m) => !m.id.startsWith("temp")), message]);
+        setMessages((prev) => {
+          const filtered = prev.filter((m) => !String(m.id).startsWith("temp"));
+          return [...filtered, normalizedMessage];
+        });
         scrollToBottom();
       }
       setConversations((prev) =>
@@ -86,8 +101,9 @@ const AdminChatbox: React.FC = () => {
           conv.id === message.conversationId
             ? {
                 ...conv,
-                messages: [...conv.messages, message],
+                messages: [...(conv.messages || []), normalizedMessage],
                 unread: conv.id === selectedConversation?.id ? 0 : (conv.unread || 0) + 1,
+                updatedAt: new Date().toISOString(),
               }
             : conv
         )
@@ -95,18 +111,34 @@ const AdminChatbox: React.FC = () => {
     });
 
     socket.on("conversation updated", (updatedConversation: Conversation) => {
+      if (!updatedConversation?.id || !updatedConversation.participant1 || !updatedConversation.participant2) {
+        console.error("Invalid conversation update received:", updatedConversation);
+        return;
+      }
+      const normalizedConversation = {
+        ...updatedConversation,
+        id: String(updatedConversation.id),
+        participant1: { ...updatedConversation.participant1, id: String(updatedConversation.participant1.id) },
+        participant2: { ...updatedConversation.participant2, id: String(updatedConversation.participant2.id) },
+        messages: updatedConversation.messages.map((msg) => ({
+          ...msg,
+          id: String(msg.id),
+          senderId: String(msg.senderId),
+          sender: { ...msg.sender, id: String(msg.sender.id) },
+        })),
+      };
       setConversations((prev) => {
-        const exists = prev.some((conv) => conv.id === updatedConversation.id);
+        const exists = prev.some((conv) => conv.id === normalizedConversation.id);
         if (exists) {
           return prev.map((conv) =>
-            conv.id === updatedConversation.id ? updatedConversation : conv
+            conv.id === normalizedConversation.id ? normalizedConversation : conv
           );
         }
-        return [updatedConversation, ...prev];
+        return [normalizedConversation, ...prev];
       });
-      if (selectedConversation?.id === updatedConversation.id) {
-        setSelectedConversation(updatedConversation);
-        setMessages(updatedConversation.messages);
+      if (selectedConversation?.id === normalizedConversation.id) {
+        setSelectedConversation(normalizedConversation);
+        setMessages(normalizedConversation.messages || []);
         scrollToBottom();
       }
     });
@@ -129,12 +161,16 @@ const AdminChatbox: React.FC = () => {
   }, [adminId, selectedConversation]);
 
   useEffect(() => {
-    if (!adminId) return;
+    if (!adminId || isNaN(parseInt(adminId, 10))) {
+      setError("Invalid admin ID. Please log in again.");
+      return;
+    }
 
     const fetchConversations = async () => {
       try {
         setIsLoading(true);
         setError(null);
+        console.log("Fetching conversations with params:", { userId: adminId, role: "ADMIN" });
         const response = await axios.get<Conversation[]>(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
           {
@@ -142,15 +178,30 @@ const AdminChatbox: React.FC = () => {
             withCredentials: true,
           }
         );
-        setConversations(response.data);
-        if (response.data.length > 0 && !selectedConversation) {
-          setSelectedConversation(response.data[0]);
+        const normalizedConversations = response.data.map((conv) => ({
+          ...conv,
+          id: String(conv.id),
+          participant1: { ...conv.participant1, id: String(conv.participant1.id) },
+          participant2: { ...conv.participant2, id: String(conv.participant2.id) },
+          messages: conv.messages.map((msg) => ({
+            ...msg,
+            id: String(msg.id),
+            senderId: String(msg.senderId),
+            sender: { ...msg.sender, id: String(msg.sender.id) },
+          })),
+        }));
+        console.log("Conversations fetched:", normalizedConversations);
+        setConversations(normalizedConversations);
+        if (normalizedConversations.length > 0 && !selectedConversation) {
+          setSelectedConversation(normalizedConversations[0]);
         }
       } catch (error: unknown) {
         console.error("Error fetching conversations:", error);
-        const message = axios.isAxiosError(error)
-          ? error.response?.data?.message || "Failed to fetch conversations"
-          : "An unexpected error occurred";
+        let message = "Failed to fetch conversations";
+        if (axios.isAxiosError(error)) {
+          message = error.response?.data?.message || error.message;
+          console.error("Axios error details:", error.response?.data);
+        }
         setError(message);
         toast.error(message);
       } finally {
@@ -174,7 +225,14 @@ const AdminChatbox: React.FC = () => {
             withCredentials: true,
           }
         );
-        setMessages(response.data);
+        const normalizedMessages = response.data.map((msg) => ({
+          ...msg,
+          id: String(msg.id),
+          senderId: String(msg.senderId),
+          sender: { ...msg.sender, id: String(msg.sender.id) },
+        }));
+        console.log("Fetched messages:", normalizedMessages);
+        setMessages(normalizedMessages || []);
         scrollToBottom();
 
         if (selectedConversation.unread > 0) {
@@ -229,7 +287,36 @@ const AdminChatbox: React.FC = () => {
             }
           ),
         ]);
-        setSearchResults([...convRes.data, ...userRes.data]);
+        const normalizedConversations = convRes.data.map((conv) => ({
+          ...conv,
+          id: String(conv.id),
+          participant1: { ...conv.participant1, id: String(conv.participant1.id) },
+          participant2: { ...conv.participant2, id: String(conv.participant2.id) },
+          messages: conv.messages.map((msg) => ({
+            ...msg,
+            id: String(msg.id),
+            senderId: String(msg.senderId),
+            sender: { ...msg.sender, id: String(msg.sender.id) },
+          })),
+        }));
+        const normalizedUsers = userRes.data.map((user) => ({
+          ...user,
+          id: String(user.id),
+        }));
+
+        // Filter users to only those without existing conversations
+        const conversationParticipantIds = new Set(
+          normalizedConversations.flatMap((conv) => [
+            conv.participant1.id,
+            conv.participant2.id,
+          ])
+        );
+        const filteredUsers = normalizedUsers.filter(
+          (user) => !conversationParticipantIds.has(user.id)
+        );
+
+        // Combine results, prioritizing conversations
+        setSearchResults([...normalizedConversations, ...filteredUsers]);
       } catch (error: unknown) {
         console.error("Error searching:", error);
         const message = axios.isAxiosError(error)
@@ -251,8 +338,11 @@ const AdminChatbox: React.FC = () => {
     try {
       setIsCreating(true);
       setError(null);
-
       console.log("Creating conversation with:", { adminId, otherUserId });
+
+      if (isNaN(parseInt(adminId, 10)) || isNaN(parseInt(otherUserId, 10))) {
+        throw new Error("Invalid participant IDs");
+      }
 
       const existingConversation = conversations.find(
         (conv) =>
@@ -266,10 +356,21 @@ const AdminChatbox: React.FC = () => {
       } else {
         const response = await axios.post<Conversation>(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
-          { participant1Id: adminId, participant2Id: otherUserId },
+          { participant1Id: parseInt(adminId, 10), participant2Id: parseInt(otherUserId, 10) },
           { withCredentials: true }
         );
-        conversation = response.data;
+        conversation = {
+          ...response.data,
+          id: String(response.data.id),
+          participant1: { ...response.data.participant1, id: String(response.data.participant1.id) },
+          participant2: { ...response.data.participant2, id: String(response.data.participant2.id) },
+          messages: response.data.messages.map((msg) => ({
+            ...msg,
+            id: String(msg.id),
+            senderId: String(msg.senderId),
+            sender: { ...msg.sender, id: String(msg.sender.id) },
+          })),
+        };
         setConversations((prev) => {
           if (prev.some((conv) => conv.id === conversation.id)) {
             return prev;
@@ -294,9 +395,8 @@ const AdminChatbox: React.FC = () => {
     }
   };
 
-  const sendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !selectedConversation || !socketRef.current) return;
+  const sendMessage = () => {
+    if (!newMessage.trim() || !selectedConversation || !socketRef.current || !adminId) return;
 
     const optimisticMessage: Message = {
       id: `temp-${Date.now()}`,
@@ -334,7 +434,16 @@ const AdminChatbox: React.FC = () => {
       localStorage.setItem("theme", newMode ? "dark" : "light");
       return newMode;
     });
+    setShowSettings(false);
   };
+
+  if (error && !adminId) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-gray-100">
+        <p className="text-red-500">{error}</p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -343,7 +452,7 @@ const AdminChatbox: React.FC = () => {
       }`}
       style={{
         fontFamily: "sans-serif",
-        backgroundImage: "url('/logo_white.svg')",
+        backgroundImage: "url('/logo.white.svg')",
         backgroundSize: "cover",
         backgroundPosition: "center",
         backgroundRepeat: "no-repeat",
@@ -352,7 +461,6 @@ const AdminChatbox: React.FC = () => {
     >
       <Toaster position="top-right" />
       <div className="relative z-10 h-full flex">
-        {/* Sidebar for conversations */}
         <div className="w-1/3 border-r border-gray-300 dark:border-gray-700 p-4 overflow-y-auto">
           <div
             className={`rounded-lg flex items-center pl-4 py-2 mb-4 ${
@@ -417,7 +525,7 @@ const AdminChatbox: React.FC = () => {
                         : result.participant1.fullName}
                     </p>
                     <p className="text-sm text-gray-500">
-                      {result.messages[0]?.content || "No messages yet"}
+                      {result.messages?.[0]?.content || "No messages yet"}
                     </p>
                     <div className="flex justify-between items-center mt-1">
                       <p className="text-xs text-gray-600">
@@ -452,7 +560,7 @@ const AdminChatbox: React.FC = () => {
                     : conv.participant1.fullName}
                 </p>
                 <p className="text-sm text-gray-500">
-                  {conv.messages[0]?.content || "No messages yet"}
+                  {conv.messages?.[0]?.content || "No messages yet"}
                 </p>
                 <div className="flex justify-between items-center mt-1">
                   <p className="text-xs text-gray-600">
@@ -471,7 +579,6 @@ const AdminChatbox: React.FC = () => {
           )}
         </div>
 
-        {/* Main chat area */}
         <div className="w-2/3 flex flex-col h-full">
           {selectedConversation ? (
             <>
@@ -502,27 +609,27 @@ const AdminChatbox: React.FC = () => {
                   messages.map((message) => (
                     <div
                       key={message.id}
-                      className={`mb-4 flex ${
+                      className={`mb-3 flex w-full ${
                         message.senderId === adminId ? "justify-end" : "justify-start"
                       }`}
                     >
                       <div
-                        className={`max-w-[70%] p-3 rounded-lg ${
+                        className={`max-w-[60%] p-3 rounded-lg shadow-sm ${
                           message.senderId === adminId
-                            ? isDarkMode
-                              ? "bg-blue-600 text-white"
-                              : "bg-blue-500 text-white"
+                            ? "bg-green-500 text-white rounded-br-none"
                             : isDarkMode
-                            ? "bg-gray-700 text-gray-200 border border-gray-600"
-                            : "bg-white text-gray-800 border border-gray-200"
+                            ? "bg-gray-700 text-gray-200 rounded-bl-none border border-gray-600"
+                            : "bg-gray-200 text-gray-800 rounded-bl-none"
                         }`}
                       >
-                        <p>{message.content}</p>
+                        <p className="text-sm leading-relaxed">{message.content}</p>
                         <p
                           className={`text-xs mt-1 text-right ${
                             message.senderId === adminId
-                              ? "text-gray-200"
-                              : "text-gray-400"
+                              ? "text-gray-100"
+                              : isDarkMode
+                              ? "text-gray-400"
+                              : "text-gray-600"
                           }`}
                         >
                           {new Date(message.createdAt).toLocaleTimeString([], {
@@ -541,7 +648,7 @@ const AdminChatbox: React.FC = () => {
                   isDarkMode ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
                 }`}
               >
-                <form onSubmit={sendMessage} className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2">
                   <input
                     type="text"
                     value={newMessage}
@@ -552,9 +659,10 @@ const AdminChatbox: React.FC = () => {
                         ? "bg-gray-700 text-gray-200 border-gray-600"
                         : "bg-white text-gray-800 border-gray-300"
                     }`}
+                    onKeyPress={(e) => e.key === "Enter" && sendMessage()}
                   />
                   <button
-                    type="submit"
+                    onClick={sendMessage}
                     className={`p-3 ${
                       isDarkMode
                         ? "text-blue-400 hover:text-blue-300"
@@ -564,7 +672,7 @@ const AdminChatbox: React.FC = () => {
                   >
                     <FontAwesomeIcon icon={faPaperPlane} />
                   </button>
-                </form>
+                </div>
               </div>
             </>
           ) : (
@@ -574,7 +682,6 @@ const AdminChatbox: React.FC = () => {
           )}
         </div>
 
-        {/* Settings button */}
         <button
           onClick={() => setShowSettings(true)}
           className={`absolute top-4 right-4 p-2 rounded-full ${
@@ -585,7 +692,6 @@ const AdminChatbox: React.FC = () => {
         </button>
       </div>
 
-      {/* Settings modal */}
       {showSettings && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div
