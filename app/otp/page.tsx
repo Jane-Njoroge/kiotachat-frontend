@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import axios from "axios";
+//import Cookies from "js-cookie";
 
 const OTPVerification: React.FC = () => {
   const [otp, setOtp] = useState("");
@@ -31,19 +32,35 @@ const OTPVerification: React.FC = () => {
     try {
       const response = await axios.post(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/verify-otp`,
-        { email, otp }
+        { email, otp },
+        { withCredentials: true }
       );
 
       if (response.status === 200) {
         setSuccess("OTP verified successfully! Redirecting...");
 
-        // Set userRole cookie (client-side)
-        // This assumes your backend sets an HTTP-only cookie as well for security
-        // document.cookie = `userRole=${response.data.role}; path=/; max-age=86400`;
-        document.cookie = `userRole=${response.data.role}; path=/; max-age=86400`;
-        localStorage.setItem("userId", response.data.userId);
-        // Redirect based on role
-        if (response.data.role === "ADMIN") {
+        const { userId, role } = response.data;
+
+        // Store userId in localStorage (keep for existing frontend logic)
+        localStorage.setItem("userId", userId);
+
+        // // Set userId and userRole cookies
+        // Cookies.set("userId", userId, {
+        //   secure: process.env.NODE_ENV === "production",
+        //   sameSite: "strict",
+        //   expires: 1, // 1 day expiry (86400 seconds)
+        //   path: "/",
+        // });
+        // Cookies.set("userRole", role, {
+        //   secure: process.env.NODE_ENV === "production",
+        //   sameSite: "strict",
+        //   expires: 1, // 1 day expiry
+        //   path: "/",
+        // });
+
+
+      //cookies are set by backend
+        if (role === "ADMIN") {
           router.push("/admin/chatbox");
         } else {
           router.push("/user/chatbox");
@@ -79,9 +96,7 @@ const OTPVerification: React.FC = () => {
             Please enter the OTP sent to your email!
           </p>
 
-          {error && (
-            <p className="text-center text-sm text-red-600">{error}</p>
-          )}
+          {error && <p className="text-center text-sm text-red-600">{error}</p>}
           {success && (
             <p className="text-center text-sm text-green-600">{success}</p>
           )}

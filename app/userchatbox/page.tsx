@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowLeft, faPaperPlane, faGear, faMoon, faSun, faSearch } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft, faPaperPlane, faGear, faMoon, faSun, faSearch, faCheck, faTimes } from "@fortawesome/free-solid-svg-icons";
 import "@fortawesome/fontawesome-svg-core/styles.css";
 import { config } from "@fortawesome/fontawesome-svg-core";
 import io, { Socket } from "socket.io-client";
@@ -48,6 +48,9 @@ const Chatbox: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"all" | "unread">("all");
   const [showSettings, setShowSettings] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editedContent, setEditedContent] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const router = useRouter();
@@ -118,6 +121,41 @@ const Chatbox: React.FC = () => {
                   normalizedMessage,
                 ],
                 unread: 0,
+              }
+            : prev
+        );
+        scrollToBottom();
+      }
+    });
+
+    socket.on("message updated", (updatedMessage: Message) => {
+      const normalizedMessage = {
+        ...updatedMessage,
+        id: String(updatedMessage.id),
+        sender: { ...updatedMessage.sender, id: String(updatedMessage.sender.id) },
+      };
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === updatedMessage.conversationId
+            ? {
+                ...conv,
+                messages: conv.messages.map((msg) =>
+                  msg.id === normalizedMessage.id ? normalizedMessage : msg
+                ),
+                updatedAt: new Date().toISOString(),
+              }
+            : conv
+        )
+      );
+      if (selectedConversation?.id === updatedMessage.conversationId) {
+        setSelectedConversation((prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: prev.messages.map((msg) =>
+                  msg.id === normalizedMessage.id ? normalizedMessage : msg
+                ),
+                updatedAt: new Date().toISOString(),
               }
             : prev
         );
@@ -331,17 +369,8 @@ const Chatbox: React.FC = () => {
     } catch (error: unknown) {
       console.error("Error starting conversation:", error);
       let message = "Failed to start conversation";
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "response" in error &&
-        typeof (error as { response?: unknown }).response === "object" &&
-        (error as { response?: { data?: { message?: string } } }).response &&
-        "data" in (error as { response?: { data?: unknown } }).response!
-      ) {
-        message =
-          ((error as { response: { data?: { message?: string } } }).response.data?.message) ||
-          message;
+      if (axios.isAxiosError(error) && error.response?.data?.message) {
+        message = error.response.data.message;
       }
       toast.error(message);
     } finally {
@@ -397,6 +426,94 @@ const Chatbox: React.FC = () => {
     setMessage("");
     scrollToBottom();
   };
+const handleEditMessage = async (messageId: string) => {
+  if (!editedContent.trim() || !selectedConversation || !userId || !socketRef.current) {
+    toast.error("Message content cannot be empty");
+    setEditingMessageId(null);
+    setEditedContent("");
+    return;
+  }
+  try {
+    const response = await axios.put(
+      `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/${messageId}`,
+      { content: editedContent },
+      {
+        withCredentials: true, // Rely on cookies for userId
+      }
+    );
+    const updatedMessage = {
+      ...response.data,
+      id: String(response.data.id),
+      sender: { ...response.data.sender, id: String(response.data.sender.id) },
+    };
+    const otherUserId =
+      selectedConversation.participant1.id === userId
+        ? selectedConversation.participant2.id
+        : selectedConversation.participant1.id;
+    socketRef.current.emit("message updated", {
+      message: updatedMessage,
+      to: otherUserId,
+      from: userId,
+      conversationId: selectedConversation.id,
+    });
+    setConversations((prev) =>
+      prev.map((conv) =>
+        conv.id === selectedConversation.id
+          ? {
+              ...conv,
+              messages: conv.messages.map((msg) =>
+                msg.id === messageId ? updatedMessage : msg
+              ),
+              updatedAt: new Date().toISOString(),
+            }
+          : conv
+      )
+    );
+    setSelectedConversation((prev) =>
+      prev
+        ? {
+            ...prev,
+            messages: prev.messages.map((msg) =>
+              msg.id === messageId ? updatedMessage : msg
+            ),
+            updatedAt: new Date().toISOString(),
+          }
+        : prev
+    );
+    setEditingMessageId(null);
+    setEditedContent("");
+    toast.success("Message updated successfully");
+  } catch (error) {
+    console.error("Error updating message:", error);
+    toast.error("Failed to update message");
+  }
+};
+  const handleMessageAction = (action: "delete" | "edit" | "forward", messageId: string) => {
+    setActiveMessageId(null); // Close the dropdown
+    console.log(`Action: ${action} for message ID: ${messageId}`);
+    switch (action) {
+      case "edit":
+        const messageToEdit = selectedConversation?.messages.find((msg) => msg.id === messageId);
+        if (messageToEdit && messageToEdit.sender.id === userId) {
+          setEditingMessageId(messageId);
+          setEditedContent(messageToEdit.content);
+        } else {
+          toast.error("You can only edit your own messages");
+        }
+        break;
+      case "delete":
+        toast.success(`Delete message ${messageId} (placeholder)`);
+        break;
+      case "forward":
+        toast.success(`Forward message ${messageId} (placeholder)`);
+        break;
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingMessageId(null);
+    setEditedContent("");
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -404,6 +521,8 @@ const Chatbox: React.FC = () => {
 
   const handleBack = () => {
     setSelectedConversation(null);
+    setActiveMessageId(null);
+    setEditingMessageId(null);
   };
 
   const toggleTheme = () => {
@@ -416,6 +535,11 @@ const Chatbox: React.FC = () => {
       document.documentElement.classList.remove("dark");
     }
     setShowSettings(false);
+  };
+
+  const toggleMessageMenu = (messageId: string) => {
+    if (editingMessageId) return; // Prevent opening menu while editing
+    setActiveMessageId(activeMessageId === messageId ? null : messageId);
   };
 
   return (
@@ -440,12 +564,13 @@ const Chatbox: React.FC = () => {
               selectedConversation.messages.map((msg) => (
                 <div
                   key={msg.id}
-                  className={`mb-3 flex w-full ${
+                  className={`mb-3 flex w-full relative ${
                     msg.sender.id === userId ? "justify-end" : "justify-start"
                   }`}
+                  onClick={() => toggleMessageMenu(msg.id)}
                 >
                   <div
-                    className={`max-w-[60%] p-3 rounded-lg shadow-sm ${
+                    className={`max-w-[60%] p-3 rounded-lg shadow-sm relative ${
                       msg.sender.id === userId
                         ? "bg-green-500 text-white rounded-br-none"
                         : theme === "dark"
@@ -453,21 +578,99 @@ const Chatbox: React.FC = () => {
                         : "bg-gray-200 text-gray-800 rounded-bl-none"
                     }`}
                   >
-                    <p className="text-sm leading-relaxed">{msg.content}</p>
-                    <p
-                      className={`text-xs mt-1 text-right ${
-                        msg.sender.id === userId
-                          ? "text-gray-100"
-                          : theme === "dark"
-                          ? "text-gray-400"
-                          : "text-gray-600"
-                      }`}
-                    >
-                      {new Date(msg.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </p>
+                    {editingMessageId === msg.id ? (
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="text"
+                          value={editedContent}
+                          onChange={(e) => setEditedContent(e.target.value)}
+                          className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005555] bg-white dark:bg-gray-700 dark:text-gray-100"
+                          onKeyPress={(e) => e.key === "Enter" && handleEditMessage(msg.id)}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => handleEditMessage(msg.id)}
+                          className="p-2 text-green-500 hover:text-green-600 dark:text-green-400 dark:hover:text-green-300"
+                        >
+                          <FontAwesomeIcon icon={faCheck} />
+                        </button>
+                        <button
+                          onClick={cancelEdit}
+                          className="p-2 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
+                        >
+                          <FontAwesomeIcon icon={faTimes} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-sm leading-relaxed">{msg.content}</p>
+                        <p
+                          className={`text-xs mt-1 text-right ${
+                            msg.sender.id === userId
+                              ? "text-gray-100"
+                              : theme === "dark"
+                              ? "text-gray-400"
+                              : "text-gray-600"
+                          }`}
+                        >
+                          {new Date(msg.createdAt).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </>
+                    )}
+                    {activeMessageId === msg.id && !editingMessageId && (
+                      <>
+                        <button
+                          className={`absolute top-1/2 -translate-y-1/2 right-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMessageId(msg.id);
+                          }}
+                        >
+                          <svg
+                            className="w-5 h-5"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path d="M6 10a2 2 0 100-4 2 2 0 000 4zm0 4a2 2 0 100-4 2 2 0 000 4zm8-4a2 2 0 100-4 2 2 0 000 4z" />
+                          </svg>
+                        </button>
+                        <div className="absolute right-0 top-8 bg-white dark:bg-gray-700 shadow-lg rounded-md p-2 z-10">
+                          {msg.sender.id === userId && (
+                            <button
+                              className="block w-full text-left p-2 hover:bg-gray-100 dark:hover:bg-gray-600 text-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMessageAction("edit", msg.id);
+                              }}
+                            >
+                              Edit
+                            </button>
+                          )}
+                          <button
+                            className="block w-full text-left p-2 hover:bg-gray-100 dark:hover:bg-gray-600 text-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMessageAction("delete", msg.id);
+                            }}
+                          >
+                            Delete
+                          </button>
+                          <button
+                            className="block w-full text-left p-2 hover:bg-gray-100 dark:hover:bg-gray-600 text-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMessageAction("forward", msg.id);
+                            }}
+                          >
+                            Forward
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               ))

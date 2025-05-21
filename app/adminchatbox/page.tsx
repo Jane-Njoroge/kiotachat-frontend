@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPaperPlane, faGear, faMoon, faSun } from "@fortawesome/free-solid-svg-icons";
+import { faPaperPlane, faGear, faMoon, faSun, faCheck, faTimes } from "@fortawesome/free-solid-svg-icons";
 import "@fortawesome/fontawesome-svg-core/styles.css";
 import { config } from "@fortawesome/fontawesome-svg-core";
 import io, { Socket } from "socket.io-client";
@@ -44,22 +44,34 @@ const AdminChatbox: React.FC = () => {
   const [newMessage, setNewMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<(User | Conversation)[]>([]);
-  const [adminId, setAdminId] = useState<string>("");
+  const [adminId, setAdminId] = useState<string>("2"); // Hardcode for testing
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editedContent, setEditedContent] = useState("");
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Helper function to get the other participant's details
+  const getOtherParticipant = (conversation: Conversation, adminId: string) => {
+    console.log("getOtherParticipant:", { conversationId: conversation.id, adminId });
+    if (conversation.participant1.id === adminId) {
+      return conversation.participant2;
+    }
+    return conversation.participant1;
+  };
+
   useEffect(() => {
     const storedAdminId = localStorage.getItem("userId")?.trim();
+    console.log("Stored adminId from localStorage:", storedAdminId);
     if (storedAdminId && !isNaN(parseInt(storedAdminId, 10))) {
       setAdminId(storedAdminId);
     } else {
-      setError("No valid admin ID found. Please log in again.");
-      toast.error("No valid admin ID found. Please log in again.");
+      console.log("No valid adminId, using default: 2");
     }
   }, []);
 
@@ -103,6 +115,31 @@ const AdminChatbox: React.FC = () => {
                 ...conv,
                 messages: [...(conv.messages || []), normalizedMessage],
                 unread: conv.id === selectedConversation?.id ? 0 : (conv.unread || 0) + 1,
+                updatedAt: new Date().toISOString(),
+              }
+            : conv
+        )
+      );
+    });
+
+    socket.on("message updated", (updatedMessage: Message) => {
+      const normalizedMessage = {
+        ...updatedMessage,
+        id: String(updatedMessage.id),
+        senderId: String(updatedMessage.senderId),
+        sender: { ...updatedMessage.sender, id: String(updatedMessage.sender.id) },
+      };
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === normalizedMessage.id ? normalizedMessage : msg))
+      );
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === updatedMessage.conversationId
+            ? {
+                ...conv,
+                messages: conv.messages.map((msg) =>
+                  msg.id === normalizedMessage.id ? normalizedMessage : msg
+                ),
                 updatedAt: new Date().toISOString(),
               }
             : conv
@@ -193,6 +230,7 @@ const AdminChatbox: React.FC = () => {
         console.log("Conversations fetched:", normalizedConversations);
         setConversations(normalizedConversations);
         if (normalizedConversations.length > 0 && !selectedConversation) {
+          console.log("Setting default conversation:", normalizedConversations[0]);
           setSelectedConversation(normalizedConversations[0]);
         }
       } catch (error: unknown) {
@@ -304,7 +342,6 @@ const AdminChatbox: React.FC = () => {
           id: String(user.id),
         }));
 
-        // Filter users to only those without existing conversations
         const conversationParticipantIds = new Set(
           normalizedConversations.flatMap((conv) => [
             conv.participant1.id,
@@ -315,7 +352,6 @@ const AdminChatbox: React.FC = () => {
           (user) => !conversationParticipantIds.has(user.id)
         );
 
-        // Combine results, prioritizing conversations
         setSearchResults([...normalizedConversations, ...filteredUsers]);
       } catch (error: unknown) {
         console.error("Error searching:", error);
@@ -423,6 +459,66 @@ const AdminChatbox: React.FC = () => {
     setNewMessage("");
     scrollToBottom();
   };
+const handleEditMessage = async (messageId: string) => {
+  if (!editedContent.trim() || !selectedConversation || !adminId || !socketRef.current) {
+    toast.error("Message content cannot be empty");
+    setEditingMessageId(null);
+    setEditedContent("");
+    return;
+  }
+  try {
+    const response = await axios.put(
+      `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/${messageId}`,
+      { content: editedContent },
+      {
+        withCredentials: true, // Rely on cookies for userId
+      }
+    );
+    const updatedMessage = {
+      ...response.data,
+      id: String(response.data.id),
+      senderId: String(response.data.sender.id),
+      sender: { ...response.data.sender, id: String(response.data.sender.id) },
+    };
+    const otherUserId =
+      selectedConversation.participant1.id === adminId
+        ? selectedConversation.participant2.id
+        : selectedConversation.participant1.id;
+    socketRef.current.emit("message updated", {
+      message: updatedMessage,
+      to: otherUserId,
+      from: adminId,
+      conversationId: selectedConversation.id,
+    });
+    setMessages((prev) =>
+      prev.map((msg) => (msg.id === messageId ? updatedMessage : msg))
+    );
+    setConversations((prev) =>
+      prev.map((conv) =>
+        conv.id === selectedConversation.id
+          ? {
+              ...conv,
+              messages: conv.messages.map((msg) =>
+                msg.id === messageId ? updatedMessage : msg
+              ),
+              updatedAt: new Date().toISOString(),
+            }
+          : conv
+      )
+    );
+    setEditingMessageId(null);
+    setEditedContent("");
+    toast.success("Message updated successfully");
+  } catch (error) {
+    console.error("Error updating message:", error);
+    toast.error("Failed to update message");
+  }
+};
+  
+  const cancelEdit = () => {
+    setEditingMessageId(null);
+    setEditedContent("");
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -435,6 +531,33 @@ const AdminChatbox: React.FC = () => {
       return newMode;
     });
     setShowSettings(false);
+  };
+
+  const handleMessageAction = (action: "delete" | "edit" | "forward", messageId: string) => {
+    setActiveMessageId(null);
+    console.log(`Action: ${action} for message ID: ${messageId}`);
+    switch (action) {
+      case "delete":
+        toast.success(`Delete message ${messageId} (placeholder)`);
+        break;
+      case "edit":
+        const messageToEdit = messages.find((msg) => msg.id === messageId);
+        if (messageToEdit && messageToEdit.senderId === adminId) {
+          setEditingMessageId(messageId);
+          setEditedContent(messageToEdit.content);
+        } else {
+          toast.error("You can only edit your own messages");
+        }
+        break;
+      case "forward":
+        toast.success(`Forward message ${messageId} (placeholder)`);
+        break;
+    }
+  };
+
+  const toggleMessageMenu = (messageId: string) => {
+    if (editingMessageId) return;
+    setActiveMessageId(activeMessageId === messageId ? null : messageId);
   };
 
   if (error && !adminId) {
@@ -520,9 +643,7 @@ const AdminChatbox: React.FC = () => {
                     onClick={() => setSelectedConversation(result as Conversation)}
                   >
                     <p className="font-semibold">
-                      {result.participant1.id === adminId
-                        ? result.participant2.fullName
-                        : result.participant1.fullName}
+                      {getOtherParticipant(result as Conversation, adminId).fullName}
                     </p>
                     <p className="text-sm text-gray-500">
                       {result.messages?.[0]?.content || "No messages yet"}
@@ -555,9 +676,7 @@ const AdminChatbox: React.FC = () => {
                 onClick={() => setSelectedConversation(conv)}
               >
                 <p className="font-semibold">
-                  {conv.participant1.id === adminId
-                    ? conv.participant2.fullName
-                    : conv.participant1.fullName}
+                  {getOtherParticipant(conv, adminId).fullName}
                 </p>
                 <p className="text-sm text-gray-500">
                   {conv.messages?.[0]?.content || "No messages yet"}
@@ -588,14 +707,10 @@ const AdminChatbox: React.FC = () => {
                 }`}
               >
                 <p className="font-semibold">
-                  {selectedConversation.participant1.id === adminId
-                    ? selectedConversation.participant2.fullName
-                    : selectedConversation.participant1.fullName}
+                  {getOtherParticipant(selectedConversation, adminId).fullName}
                 </p>
                 <p className="text-sm text-gray-500">
-                  {selectedConversation.participant1.id === adminId
-                    ? selectedConversation.participant2.email
-                    : selectedConversation.participant1.email}
+                  {getOtherParticipant(selectedConversation, adminId).email}
                 </p>
               </div>
               <div
@@ -609,12 +724,13 @@ const AdminChatbox: React.FC = () => {
                   messages.map((message) => (
                     <div
                       key={message.id}
-                      className={`mb-3 flex w-full ${
+                      className={`mb-3 flex w-full relative ${
                         message.senderId === adminId ? "justify-end" : "justify-start"
                       }`}
+                      onClick={() => toggleMessageMenu(message.id)}
                     >
                       <div
-                        className={`max-w-[60%] p-3 rounded-lg shadow-sm ${
+                        className={`max-w-[60%] p-3 rounded-lg shadow-sm relative ${
                           message.senderId === adminId
                             ? "bg-green-500 text-white rounded-br-none"
                             : isDarkMode
@@ -622,21 +738,101 @@ const AdminChatbox: React.FC = () => {
                             : "bg-gray-200 text-gray-800 rounded-bl-none"
                         }`}
                       >
-                        <p className="text-sm leading-relaxed">{message.content}</p>
-                        <p
-                          className={`text-xs mt-1 text-right ${
-                            message.senderId === adminId
-                              ? "text-gray-100"
-                              : isDarkMode
-                              ? "text-gray-400"
-                              : "text-gray-600"
-                          }`}
-                        >
-                          {new Date(message.createdAt).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
+                        {editingMessageId === message.id ? (
+                          <div className="flex items-center space-x-2">
+                            <input
+                              type="text"
+                              value={editedContent}
+                              onChange={(e) => setEditedContent(e.target.value)}
+                              className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+                              onKeyPress={(e) =>
+                                e.key === "Enter" && handleEditMessage(message.id)
+                              }
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleEditMessage(message.id)}
+                              className="p-2 text-green-500 hover:text-green-600 dark:text-green-400 dark:hover:text-green-300"
+                            >
+                              <FontAwesomeIcon icon={faCheck} />
+                            </button>
+                            <button
+                              onClick={cancelEdit}
+                              className="p-2 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
+                            >
+                              <FontAwesomeIcon icon={faTimes} />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-sm leading-relaxed">{message.content}</p>
+                            <p
+                              className={`text-xs mt-1 text-right ${
+                                message.senderId === adminId
+                                  ? "text-gray-100"
+                                  : isDarkMode
+                                  ? "text-gray-400"
+                                  : "text-gray-600"
+                              }`}
+                            >
+                              {new Date(message.createdAt).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </p>
+                          </>
+                        )}
+                        {activeMessageId === message.id && !editingMessageId && (
+                          <>
+                            <button
+                              className={`absolute top-1/2 -translate-y-1/2 right-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveMessageId(message.id);
+                              }}
+                            >
+                              <svg
+                                className="w-5 h-5"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                                xmlns="http://www.w3.org/2000/svg"
+                              >
+                                <path d="M6 10a2 2 0 100-4 2 2 0 000 4zm0 4a2 2 0 100-4 2 2 0 000 4zm8-4a2 2 0 100-4 2 2 0 000 4z" />
+                              </svg>
+                            </button>
+                            <div className="absolute right-0 top-8 bg-white dark:bg-gray-700 shadow-lg rounded-md p-2 z-10">
+                              {message.senderId === adminId && (
+                                <button
+                                  className="block w-full text-left p-2 hover:bg-gray-100 dark:hover:bg-gray-600 text-sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMessageAction("edit", message.id);
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                              )}
+                              <button
+                                className="block w-full text-left p-2 hover:bg-gray-100 dark:hover:bg-gray-600 text-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMessageAction("delete", message.id);
+                                }}
+                              >
+                                Delete
+                              </button>
+                              <button
+                                className="block w-full text-left p-2 hover:bg-gray-100 dark:hover:bg-gray-600 text-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMessageAction("forward", message.id);
+                                }}
+                              >
+                                Forward
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))
