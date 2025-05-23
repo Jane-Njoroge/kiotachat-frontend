@@ -9,6 +9,9 @@ import io, { Socket } from "socket.io-client";
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
 
+axios.defaults.withCredentials = true;
+axios.defaults.headers.common["Content-Type"] = "application/json";
+
 config.autoAddCss = false;
 
 interface User {
@@ -25,6 +28,7 @@ interface Message {
   sender: User;
   createdAt: string;
   conversationId: string;
+  isEdited?: boolean;
 }
 
 interface Conversation {
@@ -44,7 +48,7 @@ const AdminChatbox: React.FC = () => {
   const [newMessage, setNewMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<(User | Conversation)[]>([]);
-  const [adminId, setAdminId] = useState<string>("2"); // Hardcode for testing
+  const [adminId, setAdminId] = useState<string>("2");
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +60,6 @@ const AdminChatbox: React.FC = () => {
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Helper function to get the other participant's details
   const getOtherParticipant = (conversation: Conversation, adminId: string) => {
     console.log("getOtherParticipant:", { conversationId: conversation.id, adminId });
     if (conversation.participant1.id === adminId) {
@@ -99,6 +102,7 @@ const AdminChatbox: React.FC = () => {
         id: String(message.id),
         senderId: String(message.senderId),
         sender: { ...message.sender, id: String(message.sender.id) },
+        isEdited: message.isEdited,
       };
       console.log("Received message:", normalizedMessage);
       if (message.conversationId === selectedConversation?.id) {
@@ -128,6 +132,7 @@ const AdminChatbox: React.FC = () => {
         id: String(updatedMessage.id),
         senderId: String(updatedMessage.senderId),
         sender: { ...updatedMessage.sender, id: String(updatedMessage.sender.id) },
+        isEdited:updatedMessage.isEdited,
       };
       setMessages((prev) =>
         prev.map((msg) => (msg.id === normalizedMessage.id ? normalizedMessage : msg))
@@ -140,6 +145,23 @@ const AdminChatbox: React.FC = () => {
                 messages: conv.messages.map((msg) =>
                   msg.id === normalizedMessage.id ? normalizedMessage : msg
                 ),
+                updatedAt: new Date().toISOString(),
+              }
+            : conv
+        )
+      );
+    });
+
+    socket.on("message deleted", ({ messageId, conversationId }) => {
+      if (conversationId === selectedConversation?.id) {
+        setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+      }
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === conversationId
+            ? {
+                ...conv,
+                messages: conv.messages.filter((msg) => msg.id !== messageId),
                 updatedAt: new Date().toISOString(),
               }
             : conv
@@ -162,6 +184,7 @@ const AdminChatbox: React.FC = () => {
           id: String(msg.id),
           senderId: String(msg.senderId),
           sender: { ...msg.sender, id: String(msg.sender.id) },
+          isEdited:msg.isEdited,
         })),
       };
       setConversations((prev) => {
@@ -225,6 +248,7 @@ const AdminChatbox: React.FC = () => {
             id: String(msg.id),
             senderId: String(msg.senderId),
             sender: { ...msg.sender, id: String(msg.sender.id) },
+            isEdited: msg.isEdited,
           })),
         }));
         console.log("Conversations fetched:", normalizedConversations);
@@ -268,6 +292,7 @@ const AdminChatbox: React.FC = () => {
           id: String(msg.id),
           senderId: String(msg.senderId),
           sender: { ...msg.sender, id: String(msg.sender.id) },
+          isEdited:msg.isEdited,
         }));
         console.log("Fetched messages:", normalizedMessages);
         setMessages(normalizedMessages || []);
@@ -405,6 +430,7 @@ const AdminChatbox: React.FC = () => {
             id: String(msg.id),
             senderId: String(msg.senderId),
             sender: { ...msg.sender, id: String(msg.sender.id) },
+            isEdited:msg.isEdited,
           })),
         };
         setConversations((prev) => {
@@ -441,6 +467,7 @@ const AdminChatbox: React.FC = () => {
       sender: { id: adminId, fullName: "Admin", email: "", role: "ADMIN" },
       createdAt: new Date().toISOString(),
       conversationId: selectedConversation.id,
+      isEdited: false,
     };
 
     const otherUserId =
@@ -469,9 +496,10 @@ const handleEditMessage = async (messageId: string) => {
   try {
     const response = await axios.put(
       `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/${messageId}`,
-      { content: editedContent },
+      { content: editedContent, userId: adminId }, // Include userId in body
       {
-        withCredentials: true, // Rely on cookies for userId
+        withCredentials: true,
+        headers: { "x-user-id": adminId, "Content-Type": "application/json",}, // Include userId in headers
       }
     );
     const updatedMessage = {
@@ -479,6 +507,7 @@ const handleEditMessage = async (messageId: string) => {
       id: String(response.data.id),
       senderId: String(response.data.sender.id),
       sender: { ...response.data.sender, id: String(response.data.sender.id) },
+      isEdited: response.data.isEdited,
     };
     const otherUserId =
       selectedConversation.participant1.id === adminId
@@ -509,12 +538,113 @@ const handleEditMessage = async (messageId: string) => {
     setEditingMessageId(null);
     setEditedContent("");
     toast.success("Message updated successfully");
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error updating message:", error);
-    toast.error("Failed to update message");
+    const message = axios.isAxiosError(error)
+      ? error.response?.data?.message || "Failed to update message"
+      : "An unexpected error occurred";
+    toast.error(message);
   }
 };
-  
+  // const handleEditMessage = async (messageId: string) => {
+  //   if (!editedContent.trim() || !selectedConversation || !adminId || !socketRef.current) {
+  //     toast.error("Message content cannot be empty");
+  //     setEditingMessageId(null);
+  //     setEditedContent("");
+  //     return;
+  //   }
+  //   try {
+  //     const response = await axios.put(
+  //       `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/${messageId}`,
+  //       { content: editedContent, userId: adminId },
+  //       {
+  //         withCredentials: true,
+  //         headers: {"x-user-id": adminId},
+  //       }
+  //     );
+  //     const updatedMessage = {
+  //       ...response.data,
+  //       id: String(response.data.id),
+  //       senderId: String(response.data.sender.id),
+  //       sender: { ...response.data.sender, id: String(response.data.sender.id) },
+  //       isEdited: response.data.isEdited,
+  //     };
+  //     const otherUserId =
+  //       selectedConversation.participant1.id === adminId
+  //         ? selectedConversation.participant2.id
+  //         : selectedConversation.participant1.id;
+  //     socketRef.current.emit("message updated", {
+  //       message: updatedMessage,
+  //       to: otherUserId,
+  //       from: adminId,
+  //       conversationId: selectedConversation.id,
+  //     });
+  //     setMessages((prev) =>
+  //       prev.map((msg) => (msg.id === messageId ? updatedMessage : msg))
+  //     );
+  //     setConversations((prev) =>
+  //       prev.map((conv) =>
+  //         conv.id === selectedConversation.id
+  //           ? {
+  //               ...conv,
+  //               messages: conv.messages.map((msg) =>
+  //                 msg.id === messageId ? updatedMessage : msg
+  //               ),
+  //               updatedAt: new Date().toISOString(),
+  //             }
+  //           : conv
+  //       )
+  //     );
+  //     setEditingMessageId(null);
+  //     setEditedContent("");
+  //     toast.success("Message updated successfully");
+  //   } catch (error) {
+  //     console.error("Error updating message:", error);
+  //     toast.error("Failed to update message");
+  //   }
+  // };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!selectedConversation || !adminId || !socketRef.current) {
+      toast.error("Cannot delete message");
+      return;
+    }
+    try {
+      await axios.delete(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/${messageId}`,
+        {
+          withCredentials: true,
+        }
+      );
+      const otherUserId =
+        selectedConversation.participant1.id === adminId
+          ? selectedConversation.participant2.id
+          : selectedConversation.participant1.id;
+      socketRef.current.emit("message deleted", {
+        messageId,
+        to: otherUserId,
+        from: adminId,
+        conversationId: selectedConversation.id,
+      });
+      setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === selectedConversation.id
+            ? {
+                ...conv,
+                messages: conv.messages.filter((msg) => msg.id !== messageId),
+                updatedAt: new Date().toISOString(),
+              }
+            : conv
+        )
+      );
+      toast.success("Message deleted successfully");
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      toast.error("Failed to delete message");
+    }
+  };
+
   const cancelEdit = () => {
     setEditingMessageId(null);
     setEditedContent("");
@@ -538,7 +668,7 @@ const handleEditMessage = async (messageId: string) => {
     console.log(`Action: ${action} for message ID: ${messageId}`);
     switch (action) {
       case "delete":
-        toast.success(`Delete message ${messageId} (placeholder)`);
+        handleDeleteMessage(messageId);
         break;
       case "edit":
         const messageToEdit = messages.find((msg) => msg.id === messageId);
@@ -765,21 +895,26 @@ const handleEditMessage = async (messageId: string) => {
                           </div>
                         ) : (
                           <>
-                            <p className="text-sm leading-relaxed">{message.content}</p>
-                            <p
-                              className={`text-xs mt-1 text-right ${
-                                message.senderId === adminId
-                                  ? "text-gray-100"
-                                  : isDarkMode
-                                  ? "text-gray-400"
-                                  : "text-gray-600"
-                              }`}
-                            >
-                              {new Date(message.createdAt).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </p>
+                           <p className="text-sm leading-relaxed">{message.content}</p>
+                     <div className="flex justify-between items-center">
+                        {message.isEdited && (
+                      <span className="text-xs text-gray-400 mr-2">Edited</span> //mark as edited
+                       )}
+                      <p
+                        className={`text-xs mt-1 text-right ${
+                          message.senderId === adminId
+                            ? "text-gray-100"
+                            : isDarkMode
+                            ? "text-gray-400"
+                            : "text-gray-600"
+                        }`}
+                      >
+                        {new Date(message.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
                           </>
                         )}
                         {activeMessageId === message.id && !editingMessageId && (

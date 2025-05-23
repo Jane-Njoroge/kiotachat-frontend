@@ -10,6 +10,9 @@ import { config } from "@fortawesome/fontawesome-svg-core";
 import io, { Socket } from "socket.io-client";
 import toast, { Toaster } from "react-hot-toast";
 
+axios.defaults.withCredentials = true;
+axios.defaults.headers.common["Content-Type"] = "application/json";
+
 config.autoAddCss = false;
 
 interface User {
@@ -25,6 +28,7 @@ interface Message {
   sender: { id: string; fullName: string; role: string };
   createdAt: string;
   conversationId: string;
+  isEdited?: boolean;
 }
 
 interface Conversation {
@@ -95,6 +99,7 @@ const Chatbox: React.FC = () => {
         ...message,
         id: String(message.id),
         sender: { ...message.sender, id: String(message.sender.id) },
+        isEdited: message.isEdited,
       };
       setConversations((prev) =>
         prev.map((conv) =>
@@ -133,6 +138,7 @@ const Chatbox: React.FC = () => {
         ...updatedMessage,
         id: String(updatedMessage.id),
         sender: { ...updatedMessage.sender, id: String(updatedMessage.sender.id) },
+        isEdited: updatedMessage.isEdited,
       };
       setConversations((prev) =>
         prev.map((conv) =>
@@ -163,6 +169,31 @@ const Chatbox: React.FC = () => {
       }
     });
 
+    socket.on("message deleted", ({ messageId, conversationId }) => {
+      if (selectedConversation?.id === conversationId) {
+        setSelectedConversation((prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: prev.messages.filter((msg) => msg.id !== messageId),
+                updatedAt: new Date().toISOString(),
+              }
+            : prev
+        );
+      }
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === conversationId
+            ? {
+                ...conv,
+                messages: conv.messages.filter((msg) => msg.id !== messageId),
+                updatedAt: new Date().toISOString(),
+              }
+            : conv
+        )
+      );
+    });
+
     socket.on("conversation updated", (updatedConversation: Conversation) => {
       const normalizedConversation = {
         ...updatedConversation,
@@ -173,6 +204,7 @@ const Chatbox: React.FC = () => {
           ...msg,
           id: String(msg.id),
           sender: { ...msg.sender, id: String(msg.sender.id) },
+          isEdited:msg.isEdited,
         })),
       };
       setConversations((prev) => {
@@ -225,6 +257,7 @@ const Chatbox: React.FC = () => {
             ...msg,
             id: String(msg.id),
             sender: { ...msg.sender, id: String(msg.sender.id) },
+            isEdited:msg.isEdited,
           })),
         }));
         setConversations(normalizedConversations);
@@ -300,6 +333,7 @@ const Chatbox: React.FC = () => {
         ...msg,
         id: String(msg.id),
         sender: { ...msg.sender, id: String(msg.sender.id) },
+        isEdited:msg.isEdited,
       }));
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -353,6 +387,7 @@ const Chatbox: React.FC = () => {
             ...msg,
             id: String(msg.id),
             sender: { ...msg.sender, id: String(msg.sender.id) },
+            isEdited:msg.isEdited,
           })),
         };
         setConversations((prev) => {
@@ -399,6 +434,7 @@ const Chatbox: React.FC = () => {
       to: otherUserId,
       from: userId,
       conversationId: selectedConversation.id,
+      isEdited: false,
     });
 
     setConversations((prev) =>
@@ -426,70 +462,124 @@ const Chatbox: React.FC = () => {
     setMessage("");
     scrollToBottom();
   };
-const handleEditMessage = async (messageId: string) => {
-  if (!editedContent.trim() || !selectedConversation || !userId || !socketRef.current) {
-    toast.error("Message content cannot be empty");
-    setEditingMessageId(null);
-    setEditedContent("");
-    return;
-  }
-  try {
-    const response = await axios.put(
-      `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/${messageId}`,
-      { content: editedContent },
-      {
-        withCredentials: true, // Rely on cookies for userId
-      }
-    );
-    const updatedMessage = {
-      ...response.data,
-      id: String(response.data.id),
-      sender: { ...response.data.sender, id: String(response.data.sender.id) },
-    };
-    const otherUserId =
-      selectedConversation.participant1.id === userId
-        ? selectedConversation.participant2.id
-        : selectedConversation.participant1.id;
-    socketRef.current.emit("message updated", {
-      message: updatedMessage,
-      to: otherUserId,
-      from: userId,
-      conversationId: selectedConversation.id,
-    });
-    setConversations((prev) =>
-      prev.map((conv) =>
-        conv.id === selectedConversation.id
+
+  const handleEditMessage = async (messageId: string) => {
+    if (!editedContent.trim() || !selectedConversation || !userId || !socketRef.current) {
+      toast.error("Message content cannot be empty");
+      setEditingMessageId(null);
+      setEditedContent("");
+      return;
+    }
+    try {
+      const response = await axios.put(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/${messageId}`,
+        { content: editedContent, userId },
+        {
+          withCredentials: true,
+          headers: {"x-user-id": userId, "Content-Type": "application/json",},
+        }
+      );
+      const updatedMessage = {
+        ...response.data,
+        id: String(response.data.id),
+        sender: { ...response.data.sender, id: String(response.data.sender.id) },
+        isEdited: response.data.isEdited,
+      };
+      const otherUserId =
+        selectedConversation.participant1.id === userId
+          ? selectedConversation.participant2.id
+          : selectedConversation.participant1.id;
+      socketRef.current.emit("message updated", {
+        message: updatedMessage,
+        to: otherUserId,
+        from: userId,
+        conversationId: selectedConversation.id,
+      });
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === selectedConversation.id
+            ? {
+                ...conv,
+                messages: conv.messages.map((msg) =>
+                  msg.id === messageId ? updatedMessage : msg
+                ),
+                updatedAt: new Date().toISOString(),
+              }
+            : conv
+        )
+      );
+      setSelectedConversation((prev) =>
+        prev
           ? {
-              ...conv,
-              messages: conv.messages.map((msg) =>
+              ...prev,
+              messages: prev.messages.map((msg) =>
                 msg.id === messageId ? updatedMessage : msg
               ),
               updatedAt: new Date().toISOString(),
             }
-          : conv
-      )
-    );
-    setSelectedConversation((prev) =>
-      prev
-        ? {
-            ...prev,
-            messages: prev.messages.map((msg) =>
-              msg.id === messageId ? updatedMessage : msg
-            ),
-            updatedAt: new Date().toISOString(),
-          }
-        : prev
-    );
-    setEditingMessageId(null);
-    setEditedContent("");
-    toast.success("Message updated successfully");
-  } catch (error) {
-    console.error("Error updating message:", error);
-    toast.error("Failed to update message");
-  }
-};
+          : prev
+      );
+      setEditingMessageId(null);
+      setEditedContent("");
+      toast.success("Message updated successfully");
+    } catch (error) {
+      console.error("Error updating message:", error);
+      toast.error("Failed to update message");
+    }
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!selectedConversation || !userId || !socketRef.current) {
+      toast.error("Cannot delete message");
+      return;
+    }
+    try {
+      await axios.delete(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/${messageId}`,
+        {
+          withCredentials: true,
+        }
+      );
+      
+      const otherUserId =
+        selectedConversation.participant1.id === userId
+          ? selectedConversation.participant2.id
+          : selectedConversation.participant1.id;
+      socketRef.current.emit("message deleted", {
+        messageId,
+        to: otherUserId,
+        from: userId,
+        conversationId: selectedConversation.id,
+      });
+      setSelectedConversation((prev) =>
+        prev
+          ? {
+              ...prev,
+              messages: prev.messages.filter((msg) => msg.id !== messageId),
+              updatedAt: new Date().toISOString(),
+            }
+          : prev
+      );
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === selectedConversation.id
+            ? {
+                ...conv,
+                messages: conv.messages.filter((msg) => msg.id !== messageId),
+                updatedAt: new Date().toISOString(),
+              }
+            : conv
+        )
+      );
+      toast.success("Message deleted successfully");
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      toast.error("Failed to delete message");
+    }
+  };
+
   const handleMessageAction = (action: "delete" | "edit" | "forward", messageId: string) => {
-    setActiveMessageId(null); // Close the dropdown
+    setActiveMessageId(null);
     console.log(`Action: ${action} for message ID: ${messageId}`);
     switch (action) {
       case "edit":
@@ -502,7 +592,7 @@ const handleEditMessage = async (messageId: string) => {
         }
         break;
       case "delete":
-        toast.success(`Delete message ${messageId} (placeholder)`);
+        handleDeleteMessage(messageId);
         break;
       case "forward":
         toast.success(`Forward message ${messageId} (placeholder)`);
@@ -538,7 +628,7 @@ const handleEditMessage = async (messageId: string) => {
   };
 
   const toggleMessageMenu = (messageId: string) => {
-    if (editingMessageId) return; // Prevent opening menu while editing
+    if (editingMessageId) return;
     setActiveMessageId(activeMessageId === messageId ? null : messageId);
   };
 
@@ -604,20 +694,25 @@ const handleEditMessage = async (messageId: string) => {
                     ) : (
                       <>
                         <p className="text-sm leading-relaxed">{msg.content}</p>
-                        <p
-                          className={`text-xs mt-1 text-right ${
-                            msg.sender.id === userId
-                              ? "text-gray-100"
-                              : theme === "dark"
-                              ? "text-gray-400"
-                              : "text-gray-600"
-                          }`}
-                        >
-                          {new Date(msg.createdAt).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
+                        <div className="flex justify-between items-center">
+                    {msg.isEdited && (
+                      <span className="text-xs text-gray-400 mr-2">Edited</span>
+                    )}
+                    <p
+                      className={`text-xs mt-1 text-right ${
+                        msg.sender.id === userId
+                          ? "text-gray-100"
+                          : theme === "dark"
+                          ? "text-gray-400"
+                          : "text-gray-600"
+                      }`}
+                    >
+                      {new Date(msg.createdAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                    </div>
                       </>
                     )}
                     {activeMessageId === msg.id && !editingMessageId && (
