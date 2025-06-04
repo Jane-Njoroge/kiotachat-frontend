@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -27,6 +26,7 @@ interface Message {
   createdAt: string;
   conversationId: string;
   isEdited: boolean;
+  isForwarded: boolean;
 }
 
 interface Conversation {
@@ -54,9 +54,14 @@ const AdminChatbox: React.FC = () => {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editedContent, setEditedContent] = useState("");
   const [menuMessageId, setMenuMessageId] = useState<string | null>(null);
+  const [forwardModalOpen, setForwardModalOpen] = useState(false);
+  const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
+  const [forwardContent, setForwardContent] = useState("");
+  const [admins, setAdmins] = useState<User[]>([]);
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
   // Initialize admin
@@ -80,8 +85,15 @@ const AdminChatbox: React.FC = () => {
       withCredentials: true,
       query: { userId: adminId },
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      randomizationFactor: 0.5,
+      extraHeaders: {
+        "x-user-id": adminId,
+        Cookie: `userId=${adminId}; userRole=ADMIN`,
+      },
+      transports: ["websocket", "polling"],
     });
 
     const socket = socketRef.current;
@@ -92,7 +104,11 @@ const AdminChatbox: React.FC = () => {
     });
 
     socket.on("connect_error", (err: Error) => {
-      console.error("Socket connect error:", err.message);
+      console.error("Socket connect error:", {
+        message: err.message,
+        stack: err.stack,
+        cause: err.cause,
+      });
       toast.error("Failed to connect to server");
     });
 
@@ -103,6 +119,7 @@ const AdminChatbox: React.FC = () => {
         sender: { ...message.sender, id: String(message.sender.id) },
         conversationId: String(message.conversationId),
         isEdited: message.isEdited || false,
+        isForwarded: message.isForwarded || false,
       };
       setConversations((prev) => {
         const exists = prev.find((conv) => conv.id === normalizedMessage.conversationId);
@@ -148,6 +165,7 @@ const AdminChatbox: React.FC = () => {
         sender: { ...updatedMessage.sender, id: String(updatedMessage.sender.id) },
         conversationId: String(updatedMessage.conversationId),
         isEdited: true,
+        isForwarded: updatedMessage.isForwarded || false,
       };
       setConversations((prev) =>
         prev.map((conv) =>
@@ -175,6 +193,29 @@ const AdminChatbox: React.FC = () => {
       }
     });
 
+    socket.on("message deleted", (deletedMessage: { id: string; conversationId: string; isDeleted: boolean }) => {
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === deletedMessage.conversationId
+            ? {
+                ...conv,
+                messages: conv.messages.filter((msg) => msg.id !== deletedMessage.id),
+              }
+            : conv
+        )
+      );
+      if (selectedConversation?.id === deletedMessage.conversationId) {
+        setSelectedConversation((prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: prev.messages.filter((msg) => msg.id !== deletedMessage.id),
+              }
+            : prev
+        );
+      }
+    });
+
     socket.on("conversation updated", (updatedConversation: Conversation) => {
       const normalizedConversation: Conversation = {
         ...updatedConversation,
@@ -185,7 +226,9 @@ const AdminChatbox: React.FC = () => {
           ...msg,
           id: String(msg.id),
           sender: { ...msg.sender, id: String(msg.sender.id) },
+          conversationId: String(msg.conversationId),
           isEdited: msg.isEdited || false,
+          isForwarded: msg.isForwarded || false,
         })),
         unread: updatedConversation.unread || 0,
       };
@@ -210,12 +253,18 @@ const AdminChatbox: React.FC = () => {
     };
   }, [adminId, selectedConversation]);
 
+  // Auto-focus edit input
+  useEffect(() => {
+    if (editingMessageId && editInputRef.current) {
+      editInputRef.current.focus();
+    }
+  }, [editingMessageId]);
+
   // Close menu on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setMenuMessageId(null);
-        setEditingMessageId(null);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -255,6 +304,7 @@ const AdminChatbox: React.FC = () => {
                 sender: { ...msg.sender, id: String(msg.sender.id) },
                 conversationId: String(msg.conversationId),
                 isEdited: msg.isEdited || false,
+                isForwarded: msg.isForwarded || false,
               })),
               unread: conv.unread || 0,
             },
@@ -289,11 +339,31 @@ const AdminChatbox: React.FC = () => {
         sender: { ...msg.sender, id: String(msg.sender.id) },
         conversationId: String(msg.conversationId),
         isEdited: msg.isEdited || false,
+        isForwarded: msg.isForwarded || false,
       }));
     } catch (error: unknown) {
       console.error("Failed to fetch messages:", error);
       toast.error("Failed to fetch messages");
       return [];
+    }
+  };
+
+  // Fetch admins for forwarding
+  const fetchAdmins = async () => {
+    if (!adminId) return;
+    try {
+      const response = await axios.get<User[]>(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/users/admins`,
+        {
+          params: { excludeUserId: adminId },
+          headers: { "x-user-id": adminId },
+          withCredentials: true,
+        }
+      );
+      setAdmins(response.data.map((user) => ({ ...user, id: String(user.id) })));
+    } catch (error: unknown) {
+      console.error("Failed to fetch admins:", error);
+      toast.error("Failed to fetch admins");
     }
   };
 
@@ -376,6 +446,7 @@ const AdminChatbox: React.FC = () => {
       createdAt: new Date().toISOString(),
       conversationId: selectedConversation.id,
       isEdited: false,
+      isForwarded: false,
     };
     socketRef.current.emit("private message", {
       content: newMessage,
@@ -413,10 +484,19 @@ const AdminChatbox: React.FC = () => {
         { content },
         { headers: { "x-user-id": adminId }, withCredentials: true }
       );
+      socketRef.current?.emit("message updated", {
+        messageId,
+        content,
+        from: adminId,
+        conversationId: selectedConversation.id,
+        to: selectedConversation.participant1.id === adminId
+          ? selectedConversation.participant2.id
+          : selectedConversation.participant1.id,
+      });
       setEditingMessageId(null);
       setEditedContent("");
       setMenuMessageId(null);
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to edit message:", error);
       toast.error("Failed to edit message");
     }
@@ -430,42 +510,58 @@ const AdminChatbox: React.FC = () => {
         headers: { "x-user-id": adminId },
         withCredentials: true,
       });
-      setConversations((prev) =>
-        prev.map((conv) =>
-          conv.id === selectedConversation.id
-            ? {
-                ...conv,
-                messages: conv.messages.filter((msg) => msg.id !== messageId),
-              }
-            : conv
-        )
-      );
-      setSelectedConversation((prev) =>
-        prev
-          ? {
-              ...prev,
-              messages: prev.messages.filter((msg) => msg.id !== messageId),
-            }
-          : prev
-      );
+      socketRef.current?.emit("message deleted", {
+        messageId,
+        from: adminId,
+        conversationId: selectedConversation.id,
+        to: selectedConversation.participant1.id === adminId
+          ? selectedConversation.participant2.id
+          : selectedConversation.participant1.id,
+      });
       setMenuMessageId(null);
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to delete message:", error);
       toast.error("Failed to delete message");
     }
   };
 
-  // Forward message (placeholder)
-  const forwardMessage = (messageId: string, content: string) => {
-    console.log(`Forwarding message ${messageId}: ${content}`);
-    toast.success("Forward functionality not implemented yet");
+  // Open forward modal and fetch admins
+  const openForwardModal = (messageId: string, content: string) => {
+    setForwardMessageId(messageId);
+    setForwardContent(content);
+    setForwardModalOpen(true);
+    fetchAdmins();
     setMenuMessageId(null);
+  };
+
+  // Forward message
+  const forwardMessage = async (recipientIds: string[]) => {
+    if (!adminId || !forwardMessageId || !forwardContent || !recipientIds.length) return;
+    try {
+       await axios.post(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/forward`,
+        {
+          messageId: forwardMessageId,
+          recipientIds,
+          content: forwardContent,
+        },
+        { headers: { "x-user-id": adminId }, withCredentials: true }
+      );
+      toast.success("Message forwarded successfully");
+      setForwardModalOpen(false);
+      setForwardMessageId(null);
+      setForwardContent("");
+      setAdmins([]);
+      fetchConversations(); // Refresh conversations to include new ones created by forwarding
+    } catch (error) {
+      console.error("Failed to forward message:", error);
+      toast.error("Failed to forward message");
+    }
   };
 
   // Toggle message menu
   const toggleMessageMenu = (messageId: string) => {
     setMenuMessageId(menuMessageId === messageId ? null : messageId);
-    if (menuMessageId !== messageId) setEditingMessageId(null);
   };
 
   // Select conversation
@@ -573,26 +669,28 @@ const AdminChatbox: React.FC = () => {
                 <div
                   key={msg.id}
                   className={`relative flex ${msg.sender.id === adminId ? "justify-end" : "justify-start"} group`}
-                  onClick={(e) => {
-                    if (msg.sender.id === adminId && !menuRef.current?.contains(e.target as Node)) {
-                      toggleMessageMenu(msg.id);
-                    }
-                  }}
                 >
                   <div
                     className={`relative p-3 rounded-2xl max-w-[70%] transition-all ${
                       msg.sender.id === adminId
-                        ? "bg-green-500 text-white"
+                        ? "bg-blue-500 text-white"
                         : isDarkMode
                         ? "bg-gray-700 text-white"
                         : "bg-white text-gray-800 shadow-md"
-                    } ${msg.sender.id === adminId ? "hover:bg-green-600" : "hover:bg-gray-200 dark:hover:bg-gray-600"}`}
+                    } ${msg.sender.id === adminId ? "hover:bg-blue-600" : "hover:bg-gray-200 dark:hover:bg-gray-600"}`}
                   >
                     {editingMessageId === msg.id ? (
                       <div className="flex flex-col">
                         <input
+                          ref={editInputRef}
+                          type="text"
                           value={editedContent}
                           onChange={(e) => setEditedContent(e.target.value)}
+                          onKeyPress={(e) => {
+                            if (e.key === "Enter") {
+                              editMessage(msg.id, editedContent);
+                            }
+                          }}
                           className={`w-full p-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                             isDarkMode ? "bg-gray-800 text-white border-gray-600" : "bg-white text-gray-800 border-gray-300"
                           }`}
@@ -624,13 +722,23 @@ const AdminChatbox: React.FC = () => {
                         <p className="text-xs mt-1 opacity-70">
                           {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           {msg.isEdited && " (Edited)"}
+                          {msg.isForwarded && " (Forwarded)"}
                         </p>
                       </>
+                    )}
+                    {msg.sender.id === adminId && (
+                      <button
+                        onClick={() => toggleMessageMenu(msg.id)}
+                        className="absolute top-2 right-2 p-1 text-gray-200 hover:text-gray-300"
+                        aria-label="Toggle menu"
+                      >
+                        <FontAwesomeIcon icon={faEllipsisV} />
+                      </button>
                     )}
                     {msg.sender.id === adminId && menuMessageId === msg.id && !editingMessageId && (
                       <div
                         ref={menuRef}
-                        className={`absolute top-full left-0 mt-2 bg-white dark:bg-gray-800 shadow-lg rounded-lg z-10 border w-32 ${isDarkMode ? "border-gray-700" : "border-gray-200"}`}
+                        className={`absolute top-full right-0 mt-2 bg-white dark:bg-gray-800 shadow-lg rounded-lg z-10 border w-32 ${isDarkMode ? "border-gray-700" : "border-gray-200"}`}
                       >
                         <button
                           onClick={() => {
@@ -649,7 +757,7 @@ const AdminChatbox: React.FC = () => {
                           <FontAwesomeIcon icon={faTrash} className="mr-2" /> Delete
                         </button>
                         <button
-                          onClick={() => forwardMessage(msg.id, msg.content)}
+                          onClick={() => openForwardModal(msg.id, msg.content)}
                           className="flex items-center w-full px-4 py-2 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                         >
                           <FontAwesomeIcon icon={faShare} className="mr-2" /> Forward
@@ -657,12 +765,6 @@ const AdminChatbox: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  {msg.sender.id === adminId && !menuMessageId && !editingMessageId && (
-                    <FontAwesomeIcon
-                      icon={faEllipsisV}
-                      className="absolute top-2 right-2 text-gray-400 opacity-0 group-hover:opacity-100 transition"
-                    />
-                  )}
                 </div>
               ))}
               <div ref={messagesEndRef} />
@@ -693,6 +795,44 @@ const AdminChatbox: React.FC = () => {
           </div>
         )}
       </div>
+      {forwardModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-20">
+          <div className={`p-6 rounded-lg shadow-lg ${isDarkMode ? "bg-gray-800 text-white" : "bg-white text-gray-800"} max-w-md w-full`}>
+            <h3 className="text-lg font-semibold mb-4">Forward Message To</h3>
+            {admins.length > 0 ? (
+              <div className="max-h-60 overflow-y-auto">
+                {admins.map((admin) => (
+                  <div
+                    key={admin.id}
+                    className="p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer rounded-lg flex items-center space-x-3"
+                    onClick={() => forwardMessage([admin.id])}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-purple-500 flex items-center justify-center text-white font-semibold">
+                      {admin.fullName[0]?.toUpperCase() || "?"}
+                    </div>
+                    <span>{admin.fullName}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 dark:text-gray-400">No other admins found</p>
+            )}
+            <div className="mt-4 flex justify-end space-x-2">
+              <button
+                onClick={() => {
+                  setForwardModalOpen(false);
+                  setForwardMessageId(null);
+                  setForwardContent("");
+                  setAdmins([]);
+                }}
+                className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <button
         onClick={toggleDarkMode}
         className={`absolute top-4 right-4 p-3 rounded-full ${isDarkMode ? "bg-gray-700 text-white hover:bg-gray-600" : "bg-gray-200 text-gray-800 hover:bg-gray-300"} transition`}
