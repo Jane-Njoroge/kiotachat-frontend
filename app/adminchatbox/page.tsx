@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPaperPlane, faMoon, faSun, faEllipsisV, faEdit, faTrash, faShare } from "@fortawesome/free-solid-svg-icons";
@@ -64,7 +64,7 @@ const AdminChatbox: React.FC = () => {
   const editInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  // Initialize admin
+
   useEffect(() => {
     const storedAdminId = localStorage.getItem("userId")?.trim();
     const storedRole = localStorage.getItem("role");
@@ -76,7 +76,6 @@ const AdminChatbox: React.FC = () => {
     setAdminId(storedAdminId);
   }, [router]);
 
-  // Setup socket
   useEffect(() => {
     if (!adminId) return;
 
@@ -109,8 +108,7 @@ const AdminChatbox: React.FC = () => {
         stack: err.stack,
         cause: err.cause,
       });
-      toast.error("Failed to connect to server");
-    });
+      toast.error("Failed to connect to server");     });
 
     socket.on("private message", (message: Message) => {
       const normalizedMessage: Message = {
@@ -253,14 +251,14 @@ const AdminChatbox: React.FC = () => {
     };
   }, [adminId, selectedConversation]);
 
-  // Auto-focus edit input
+ 
   useEffect(() => {
     if (editingMessageId && editInputRef.current) {
       editInputRef.current.focus();
     }
   }, [editingMessageId]);
 
-  // Close menu on outside click
+ 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -273,55 +271,101 @@ const AdminChatbox: React.FC = () => {
     };
   }, []);
 
-  // Fetch conversations
-  useEffect(() => {
-    fetchConversations();
-  }, [adminId]);
 
-  const fetchConversations = async () => {
-    if (!adminId) return;
-    try {
-      const response = await axios.get<Conversation[]>(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
-        {
-          params: { userId: adminId, role: "ADMIN" },
-          headers: { "x-user-id": adminId },
-          withCredentials: true,
-        }
-      );
-      const uniqueConversations = Array.from(
-        new Map(
-          response.data.map((conv) => [
-            conv.id,
-            {
-              ...conv,
-              id: String(conv.id),
-              participant1: { ...conv.participant1, id: String(conv.participant1.id) },
-              participant2: { ...conv.participant2, id: String(conv.participant2.id) },
-              messages: conv.messages.map((msg) => ({
-                ...msg,
-                id: String(msg.id),
-                sender: { ...msg.sender, id: String(msg.sender.id) },
-                conversationId: String(msg.conversationId),
-                isEdited: msg.isEdited || false,
-                isForwarded: msg.isForwarded || false,
-              })),
-              unread: conv.unread || 0,
-            },
-          ])
-        ).values()
-      ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      setConversations(uniqueConversations);
-    } catch (error: unknown) {
-      console.error("Failed to fetch conversations:", error);
-      toast.error("Failed to fetch conversations. Please try again.");
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        router.push("/login");
+  // useEffect(() => {
+  //   fetchConversations();
+  // }, [adminId],);
+
+  // const fetchConversations = async () => {
+  //   if (!adminId) return;
+  //   try {
+  //     const response = await axios.get<Conversation[]>(
+  //       `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
+  //       {
+  //         params: { userId: adminId, role: "ADMIN" },
+  //         headers: { "x-user-id": adminId },
+  //         withCredentials: true,
+  //       }
+  //     );
+  //     const uniqueConversations = Array.from(
+  //       new Map(
+  //         response.data.map((conv) => [
+  //           conv.id,
+  //           {
+  //             ...conv,
+  //             id: String(conv.id),
+  //             participant1: { ...conv.participant1, id: String(conv.participant1.id) },
+  //             participant2: { ...conv.participant2, id: String(conv.participant2.id) },
+  //             messages: conv.messages.map((msg) => ({
+  //               ...msg,
+  //               id: String(msg.id),
+  //               sender: { ...msg.sender, id: String(msg.sender.id) },
+  //               conversationId: String(msg.conversationId),
+  //               isEdited: msg.isEdited || false,
+  //               isForwarded: msg.isForwarded || false,
+  //             })),
+  //             unread: conv.unread || 0,
+  //           },
+  //         ])
+  //       ).values()
+  //     ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  //     setConversations(uniqueConversations);
+  //   } catch (error: unknown) {
+  //     console.error("Failed to fetch conversations:", error);
+  //     toast.error("Failed to fetch conversations. Please try again.");
+  //     if (axios.isAxiosError(error) && error.response?.status === 401) {
+  //       router.push("/login");
+  //     }
+  //   }
+  // };
+const fetchConversations = useCallback(async () => {
+  if (!adminId) return;
+  try {
+    const response = await axios.get<Conversation[]>(
+      `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
+      {
+        params: { userId: adminId, role: "ADMIN" },
+        headers: { "x-user-id": adminId },
+        withCredentials: true,
       }
+    );
+    const uniqueConversations = Array.from(
+      new Map(
+        response.data.map((conv) => [
+          conv.id,
+          {
+            ...conv,
+            id: String(conv.id),
+            participant1: { ...conv.participant1, id: String(conv.participant1.id) },
+            participant2: { ...conv.participant2, id: String(conv.participant2.id) },
+            messages: conv.messages.map((msg) => ({
+              ...msg,
+              id: String(msg.id),
+              sender: { ...msg.sender, id: String(msg.sender.id) },
+              conversationId: String(msg.conversationId),
+              isEdited: msg.isEdited || false,
+              isForwarded: msg.isForwarded || false,
+            })),
+            unread: conv.unread || 0,
+          },
+        ])
+      ).values()
+    ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    setConversations(uniqueConversations);
+  } catch (error: unknown) {
+    console.error("Failed to fetch conversations:", error);
+    toast.error("Failed to fetch conversations. Please try again.");
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      router.push("/login");
     }
-  };
+  }
+}, [adminId, router]); 
 
-  // Fetch messages
+useEffect(() => {
+  fetchConversations();
+}, [adminId, fetchConversations]); 
+
+ 
   const fetchMessages = async (conversationId: string): Promise<Message[]> => {
     if (!adminId) return [];
     try {
@@ -348,7 +392,6 @@ const AdminChatbox: React.FC = () => {
     }
   };
 
-  // Fetch admins for forwarding
   const fetchAdmins = async () => {
     if (!adminId) return;
     try {
@@ -367,7 +410,7 @@ const AdminChatbox: React.FC = () => {
     }
   };
 
-  // Search users
+
   useEffect(() => {
     if (!searchQuery.trim() || !adminId) {
       setSearchResults([]);
@@ -393,7 +436,7 @@ const AdminChatbox: React.FC = () => {
     return () => clearTimeout(timeout);
   }, [searchQuery, adminId]);
 
-  // Create conversation
+
   const createConversation = async (userId: string) => {
     if (!adminId) return;
     try {
@@ -430,7 +473,7 @@ const AdminChatbox: React.FC = () => {
     }
   };
 
-  // Send message
+
   const sendMessage = () => {
     if (!newMessage.trim() || !selectedConversation || !socketRef.current || !adminId) return;
     const tempId = `temp-${Date.now()}`;
@@ -475,7 +518,7 @@ const AdminChatbox: React.FC = () => {
     scrollToBottom();
   };
 
-  // Edit message
+ 
   const editMessage = async (messageId: string, content: string) => {
     if (!adminId || !selectedConversation || !content.trim()) return;
     try {
@@ -502,7 +545,6 @@ const AdminChatbox: React.FC = () => {
     }
   };
 
-  // Delete message
   const deleteMessage = async (messageId: string) => {
     if (!adminId || !selectedConversation) return;
     try {
@@ -525,7 +567,7 @@ const AdminChatbox: React.FC = () => {
     }
   };
 
-  // Open forward modal and fetch admins
+
   const openForwardModal = (messageId: string, content: string) => {
     setForwardMessageId(messageId);
     setForwardContent(content);
@@ -534,7 +576,7 @@ const AdminChatbox: React.FC = () => {
     setMenuMessageId(null);
   };
 
-  // Forward message
+
   const forwardMessage = async (recipientIds: string[]) => {
     if (!adminId || !forwardMessageId || !forwardContent || !recipientIds.length) return;
     try {
@@ -576,19 +618,19 @@ const AdminChatbox: React.FC = () => {
     scrollToBottom();
   };
 
-  // Scroll to bottom
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Toggle theme
+
   const toggleDarkMode = () => {
     setIsDarkMode((prev) => !prev);
     localStorage.setItem("theme", !isDarkMode ? "dark" : "light");
     document.documentElement.classList.toggle("dark", !isDarkMode);
   };
 
-  // Get partner name
+  
   const getPartnerName = (conv: Conversation | null): string => {
     if (!conv || !adminId) return "Unknown";
     return conv.participant1.id === adminId ? conv.participant2.fullName : conv.participant1.fullName;
