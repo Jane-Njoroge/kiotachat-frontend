@@ -3,14 +3,25 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPaperPlane, faMoon, faSun, faEllipsisV, faEdit, faTrash, faShare } from "@fortawesome/free-solid-svg-icons";
+import {
+  faPaperPlane,
+  faMoon,
+  faSun,
+  faEllipsisV,
+  faEdit,
+  faTrash,
+  faShare,
+} from "@fortawesome/free-solid-svg-icons";
 import "@fortawesome/fontawesome-svg-core/styles.css";
 import { config } from "@fortawesome/fontawesome-svg-core";
 import io, { Socket } from "socket.io-client";
 import axios from "axios";
 import { Toaster, toast } from "react-hot-toast";
+import DOMPurify from "dompurify";
 
 config.autoAddCss = false;
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5002";
 
 interface User {
   id: string;
@@ -50,6 +61,7 @@ const AdminChatbox: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [adminId, setAdminId] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editedContent, setEditedContent] = useState("");
@@ -64,23 +76,41 @@ const AdminChatbox: React.FC = () => {
   const editInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-
+  // Fetch user data from /me endpoint
   useEffect(() => {
-    const storedAdminId = localStorage.getItem("userId")?.trim();
-    const storedRole = localStorage.getItem("role");
-    if (!storedAdminId || storedRole !== "ADMIN" || isNaN(parseInt(storedAdminId, 10))) {
-      toast.error("Session expired. Please log in again.");
-      router.push("/login");
-      return;
-    }
-    setAdminId(storedAdminId);
+    const fetchUser = async () => {
+      try {
+        const response = await axios.get(`${BACKEND_URL}/me`, {
+          withCredentials: true,
+        });
+        const { userId, role, fullName } = response.data;
+        console.log("Fetched user:", { userId, role, fullName });
+
+        if (role !== "ADMIN") {
+          console.error("Role mismatch, redirecting to login");
+          toast.error("Unauthorized access");
+          router.push("/login");
+          return;
+        }
+
+        setAdminId(userId);
+        setRole(role);
+        localStorage.setItem("fullName", fullName); // Only store non-sensitive data
+      } catch (error) {
+        console.error("Failed to fetch user:", error);
+        toast.error("Authentication failed");
+        router.push("/login");
+      }
+    };
+    fetchUser();
   }, [router]);
 
+  // Initialize socket and fetch conversations
   useEffect(() => {
-    if (!adminId) return;
+    if (!adminId || !role) return;
 
     axios.defaults.withCredentials = true;
-    socketRef.current = io(process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5002", {
+    socketRef.current = io(BACKEND_URL, {
       withCredentials: true,
       query: { userId: adminId },
       reconnection: true,
@@ -108,9 +138,11 @@ const AdminChatbox: React.FC = () => {
         stack: err.stack,
         cause: err.cause,
       });
-      toast.error("Failed to connect to server");     });
+      toast.error("Failed to connect to server");
+    });
 
     socket.on("private message", (message: Message) => {
+      console.log("Received private message:", message);
       const normalizedMessage: Message = {
         ...message,
         id: String(message.id),
@@ -157,6 +189,7 @@ const AdminChatbox: React.FC = () => {
     });
 
     socket.on("message updated", (updatedMessage: Message) => {
+      console.log("Received message updated:", updatedMessage);
       const normalizedMessage: Message = {
         ...updatedMessage,
         id: String(updatedMessage.id),
@@ -192,6 +225,7 @@ const AdminChatbox: React.FC = () => {
     });
 
     socket.on("message deleted", (deletedMessage: { id: string; conversationId: string; isDeleted: boolean }) => {
+      console.log("Received message deleted:", deletedMessage);
       setConversations((prev) =>
         prev.map((conv) =>
           conv.id === deletedMessage.conversationId
@@ -215,6 +249,7 @@ const AdminChatbox: React.FC = () => {
     });
 
     socket.on("conversation updated", (updatedConversation: Conversation) => {
+      console.log("Received conversation updated:", updatedConversation);
       const normalizedConversation: Conversation = {
         ...updatedConversation,
         id: String(updatedConversation.id),
@@ -243,22 +278,24 @@ const AdminChatbox: React.FC = () => {
     });
 
     socket.on("error", (error: SocketError) => {
+      console.error("Socket error:", error);
       toast.error(error.message || "Socket error");
+      if (error.message?.includes("Invalid userId") || error.message?.includes("validation failed")) {
+        router.push("/login");
+      }
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [adminId, selectedConversation]);
+  }, [adminId, role, selectedConversation, router]);
 
- 
   useEffect(() => {
     if (editingMessageId && editInputRef.current) {
       editInputRef.current.focus();
     }
   }, [editingMessageId]);
 
- 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -271,112 +308,58 @@ const AdminChatbox: React.FC = () => {
     };
   }, []);
 
-
-  // useEffect(() => {
-  //   fetchConversations();
-  // }, [adminId],);
-
-  // const fetchConversations = async () => {
-  //   if (!adminId) return;
-  //   try {
-  //     const response = await axios.get<Conversation[]>(
-  //       `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
-  //       {
-  //         params: { userId: adminId, role: "ADMIN" },
-  //         headers: { "x-user-id": adminId },
-  //         withCredentials: true,
-  //       }
-  //     );
-  //     const uniqueConversations = Array.from(
-  //       new Map(
-  //         response.data.map((conv) => [
-  //           conv.id,
-  //           {
-  //             ...conv,
-  //             id: String(conv.id),
-  //             participant1: { ...conv.participant1, id: String(conv.participant1.id) },
-  //             participant2: { ...conv.participant2, id: String(conv.participant2.id) },
-  //             messages: conv.messages.map((msg) => ({
-  //               ...msg,
-  //               id: String(msg.id),
-  //               sender: { ...msg.sender, id: String(msg.sender.id) },
-  //               conversationId: String(msg.conversationId),
-  //               isEdited: msg.isEdited || false,
-  //               isForwarded: msg.isForwarded || false,
-  //             })),
-  //             unread: conv.unread || 0,
-  //           },
-  //         ])
-  //       ).values()
-  //     ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  //     setConversations(uniqueConversations);
-  //   } catch (error: unknown) {
-  //     console.error("Failed to fetch conversations:", error);
-  //     toast.error("Failed to fetch conversations. Please try again.");
-  //     if (axios.isAxiosError(error) && error.response?.status === 401) {
-  //       router.push("/login");
-  //     }
-  //   }
-  // };
-const fetchConversations = useCallback(async () => {
-  if (!adminId) return;
-  try {
-    const response = await axios.get<Conversation[]>(
-      `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
-      {
+  const fetchConversations = useCallback(async () => {
+    if (!adminId) return;
+    try {
+      const response = await axios.get<Conversation[]>(`${BACKEND_URL}/conversations`, {
         params: { userId: adminId, role: "ADMIN" },
         headers: { "x-user-id": adminId },
         withCredentials: true,
+      });
+      const uniqueConversations = Array.from(
+        new Map(
+          response.data.map((conv) => [
+            conv.id,
+            {
+              ...conv,
+              id: String(conv.id),
+              participant1: { ...conv.participant1, id: String(conv.participant1.id) },
+              participant2: { ...conv.participant2, id: String(conv.participant2.id) },
+              messages: conv.messages.map((msg) => ({
+                ...msg,
+                id: String(msg.id),
+                sender: { ...msg.sender, id: String(msg.sender.id) },
+                conversationId: String(msg.conversationId),
+                isEdited: msg.isEdited || false,
+                isForwarded: msg.isForwarded || false,
+              })),
+              unread: conv.unread || 0,
+            },
+          ])
+        ).values()
+      ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      setConversations(uniqueConversations);
+    } catch (error: unknown) {
+      console.error("Failed to fetch conversations:", error);
+      toast.error("Failed to fetch conversations. Please try again.");
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        router.push("/login");
       }
-    );
-    const uniqueConversations = Array.from(
-      new Map(
-        response.data.map((conv) => [
-          conv.id,
-          {
-            ...conv,
-            id: String(conv.id),
-            participant1: { ...conv.participant1, id: String(conv.participant1.id) },
-            participant2: { ...conv.participant2, id: String(conv.participant2.id) },
-            messages: conv.messages.map((msg) => ({
-              ...msg,
-              id: String(msg.id),
-              sender: { ...msg.sender, id: String(msg.sender.id) },
-              conversationId: String(msg.conversationId),
-              isEdited: msg.isEdited || false,
-              isForwarded: msg.isForwarded || false,
-            })),
-            unread: conv.unread || 0,
-          },
-        ])
-      ).values()
-    ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-    setConversations(uniqueConversations);
-  } catch (error: unknown) {
-    console.error("Failed to fetch conversations:", error);
-    toast.error("Failed to fetch conversations. Please try again.");
-    if (axios.isAxiosError(error) && error.response?.status === 401) {
-      router.push("/login");
     }
-  }
-}, [adminId, router]); 
+  }, [adminId, router]);
 
-useEffect(() => {
-  fetchConversations();
-}, [adminId, fetchConversations]); 
+  useEffect(() => {
+    fetchConversations();
+  }, [adminId, fetchConversations]);
 
- 
   const fetchMessages = async (conversationId: string): Promise<Message[]> => {
     if (!adminId) return [];
     try {
-      const response = await axios.get<Message[]>(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages`,
-        {
-          params: { conversationId },
-          headers: { "x-user-id": adminId },
-          withCredentials: true,
-        }
-      );
+      const response = await axios.get<Message[]>(`${BACKEND_URL}/messages`, {
+        params: { conversationId },
+        headers: { "x-user-id": adminId },
+        withCredentials: true,
+      });
       return response.data.map((msg) => ({
         ...msg,
         id: String(msg.id),
@@ -395,21 +378,17 @@ useEffect(() => {
   const fetchAdmins = async () => {
     if (!adminId) return;
     try {
-      const response = await axios.get<User[]>(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/users/admins`,
-        {
-          params: { excludeUserId: adminId },
-          headers: { "x-user-id": adminId },
-          withCredentials: true,
-        }
-      );
+      const response = await axios.get<User[]>(`${BACKEND_URL}/users/admins`, {
+        params: { excludeUserId: adminId },
+        headers: { "x-user-id": adminId },
+        withCredentials: true,
+      });
       setAdmins(response.data.map((user) => ({ ...user, id: String(user.id) })));
     } catch (error: unknown) {
       console.error("Failed to fetch admins:", error);
       toast.error("Failed to fetch admins");
     }
   };
-
 
   useEffect(() => {
     if (!searchQuery.trim() || !adminId) {
@@ -418,14 +397,11 @@ useEffect(() => {
     }
     const search = async () => {
       try {
-        const response = await axios.get<User[]>(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/search/users`,
-          {
-            params: { query: searchQuery, excludeUserId: adminId },
-            headers: { "x-user-id": adminId },
-            withCredentials: true,
-          }
-        );
+        const response = await axios.get<User[]>(`${BACKEND_URL}/search/users`, {
+          params: { query: searchQuery, excludeUserId: adminId },
+          headers: { "x-user-id": adminId },
+          withCredentials: true,
+        });
         setSearchResults(response.data.map((user) => ({ ...user, id: String(user.id) })));
       } catch (error: unknown) {
         console.error("Search failed:", error);
@@ -436,12 +412,11 @@ useEffect(() => {
     return () => clearTimeout(timeout);
   }, [searchQuery, adminId]);
 
-
   const createConversation = async (userId: string) => {
     if (!adminId) return;
     try {
       const response = await axios.post<Conversation>(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/conversations`,
+        `${BACKEND_URL}/conversations`,
         { participant1Id: adminId, participant2Id: userId },
         { headers: { "x-user-id": adminId }, withCredentials: true }
       );
@@ -472,7 +447,6 @@ useEffect(() => {
       toast.error("Failed to create conversation");
     }
   };
-
 
   const sendMessage = () => {
     if (!newMessage.trim() || !selectedConversation || !socketRef.current || !adminId) return;
@@ -518,12 +492,11 @@ useEffect(() => {
     scrollToBottom();
   };
 
- 
   const editMessage = async (messageId: string, content: string) => {
     if (!adminId || !selectedConversation || !content.trim()) return;
     try {
       await axios.put(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/${messageId}`,
+        `${BACKEND_URL}/messages/${messageId}`,
         { content },
         { headers: { "x-user-id": adminId }, withCredentials: true }
       );
@@ -532,9 +505,10 @@ useEffect(() => {
         content,
         from: adminId,
         conversationId: selectedConversation.id,
-        to: selectedConversation.participant1.id === adminId
-          ? selectedConversation.participant2.id
-          : selectedConversation.participant1.id,
+        to:
+          selectedConversation.participant1.id === adminId
+            ? selectedConversation.participant2.id
+            : selectedConversation.participant1.id,
       });
       setEditingMessageId(null);
       setEditedContent("");
@@ -548,7 +522,7 @@ useEffect(() => {
   const deleteMessage = async (messageId: string) => {
     if (!adminId || !selectedConversation) return;
     try {
-      await axios.delete(`${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/${messageId}`, {
+      await axios.delete(`${BACKEND_URL}/messages/${messageId}`, {
         headers: { "x-user-id": adminId },
         withCredentials: true,
       });
@@ -556,9 +530,10 @@ useEffect(() => {
         messageId,
         from: adminId,
         conversationId: selectedConversation.id,
-        to: selectedConversation.participant1.id === adminId
-          ? selectedConversation.participant2.id
-          : selectedConversation.participant1.id,
+        to:
+          selectedConversation.participant1.id === adminId
+            ? selectedConversation.participant2.id
+            : selectedConversation.participant1.id,
       });
       setMenuMessageId(null);
     } catch (error) {
@@ -566,7 +541,6 @@ useEffect(() => {
       toast.error("Failed to delete message");
     }
   };
-
 
   const openForwardModal = (messageId: string, content: string) => {
     setForwardMessageId(messageId);
@@ -576,12 +550,11 @@ useEffect(() => {
     setMenuMessageId(null);
   };
 
-
   const forwardMessage = async (recipientIds: string[]) => {
     if (!adminId || !forwardMessageId || !forwardContent || !recipientIds.length) return;
     try {
-       await axios.post(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/messages/forward`,
+      await axios.post(
+        `${BACKEND_URL}/messages/forward`,
         {
           messageId: forwardMessageId,
           recipientIds,
@@ -594,19 +567,17 @@ useEffect(() => {
       setForwardMessageId(null);
       setForwardContent("");
       setAdmins([]);
-      fetchConversations(); // Refresh conversations to include new ones created by forwarding
+      fetchConversations();
     } catch (error) {
       console.error("Failed to forward message:", error);
       toast.error("Failed to forward message");
     }
   };
 
-  // Toggle message menu
   const toggleMessageMenu = (messageId: string) => {
     setMenuMessageId(menuMessageId === messageId ? null : messageId);
   };
 
-  // Select conversation
   const selectConversation = async (conv: Conversation) => {
     const messages = await fetchMessages(conv.id);
     const updatedConversation = { ...conv, messages };
@@ -616,13 +587,20 @@ useEffect(() => {
     );
     setMenuMessageId(null);
     scrollToBottom();
+    try {
+      await axios.post(
+        `${BACKEND_URL}/conversations/${conv.id}/read`,
+        {},
+        { withCredentials: true }
+      );
+    } catch (error) {
+      console.error("Failed to mark conversation as read:", error);
+    }
   };
-
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-
 
   const toggleDarkMode = () => {
     setIsDarkMode((prev) => !prev);
@@ -630,7 +608,6 @@ useEffect(() => {
     document.documentElement.classList.toggle("dark", !isDarkMode);
   };
 
-  
   const getPartnerName = (conv: Conversation | null): string => {
     if (!conv || !adminId) return "Unknown";
     return conv.participant1.id === adminId ? conv.participant2.fullName : conv.participant1.fullName;
@@ -639,16 +616,26 @@ useEffect(() => {
   if (!adminId) return null;
 
   return (
-    <div className={`h-screen flex ${isDarkMode ? "bg-gradient-to-b from-gray-800 to-gray-900" : "bg-gradient-to-b from-gray-100 to-gray-200"} text-gray-800 dark:text-gray-100 transition-colors duration-300`}>
+    <div
+      className={`h-screen flex ${
+        isDarkMode ? "bg-gradient-to-b from-gray-800 to-gray-900" : "bg-gradient-to-b from-gray-100 to-gray-200"
+      } text-gray-800 dark:text-gray-100 transition-colors duration-300`}
+    >
       <Toaster />
-      <div className={`w-1/3 border-r p-4 overflow-y-auto ${isDarkMode ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white"} shadow-inner`}>
+      <div
+        className={`w-1/3 border-r p-4 overflow-y-auto ${
+          isDarkMode ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white"
+        } shadow-inner`}
+      >
         <input
           type="text"
           placeholder="Search users..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className={`w-full p-3 mb-4 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
-            isDarkMode ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400" : "bg-gray-50 text-gray-800 border-gray-300 placeholder-gray-500"
+            isDarkMode
+              ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
+              : "bg-gray-50 text-gray-800 border-gray-300 placeholder-gray-500"
           }`}
         />
         {searchResults.length > 0 ? (
@@ -700,7 +687,11 @@ useEffect(() => {
       <div className="flex-1 flex flex-col">
         {selectedConversation ? (
           <>
-            <div className={`p-4 border-b ${isDarkMode ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white"} shadow-sm flex items-center space-x-3`}>
+            <div
+              className={`p-4 border-b ${
+                isDarkMode ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white"
+              } shadow-sm flex items-center space-x-3`}
+            >
               <div className="w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center text-white font-semibold">
                 {getPartnerName(selectedConversation)[0]?.toUpperCase() || "?"}
               </div>
@@ -760,9 +751,16 @@ useEffect(() => {
                       </div>
                     ) : (
                       <>
-                        <p className="break-words">{msg.content}</p>
+                        <p
+                          dangerouslySetInnerHTML={{
+                            __html: DOMPurify.sanitize(msg.content),
+                          }}
+                        />
                         <p className="text-xs mt-1 opacity-70">
-                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          {new Date(msg.createdAt).toLocaleTimeString("en-US", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                           {msg.isEdited && " (Edited)"}
                           {msg.isForwarded && " (Forwarded)"}
                         </p>
@@ -780,7 +778,9 @@ useEffect(() => {
                     {msg.sender.id === adminId && menuMessageId === msg.id && !editingMessageId && (
                       <div
                         ref={menuRef}
-                        className={`absolute top-full right-0 mt-2 bg-white dark:bg-gray-800 shadow-lg rounded-lg z-10 border w-32 ${isDarkMode ? "border-gray-700" : "border-gray-200"}`}
+                        className={`absolute top-full right-0 mt-2 bg-white dark:bg-gray-800 shadow-lg rounded-lg z-10 border w-32 ${
+                          isDarkMode ? "border-gray-700" : "border-gray-200"
+                        }`}
                       >
                         <button
                           onClick={() => {
@@ -811,14 +811,20 @@ useEffect(() => {
               ))}
               <div ref={messagesEndRef} />
             </div>
-            <div className={`p-4 border-t flex items-center ${isDarkMode ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white"} shadow-inner`}>
+            <div
+              className={`p-4 border-t flex items-center ${
+                isDarkMode ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white"
+              } shadow-inner`}
+            >
               <input
                 type="text"
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Type a message..."
                 className={`flex-1 p-3 rounded-full border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
-                  isDarkMode ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400" : "bg-gray-50 text-gray-800 border-gray-300 placeholder-gray-500"
+                  isDarkMode
+                    ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
+                    : "bg-gray-50 text-gray-800 border-gray-300 placeholder-gray-500"
                 }`}
                 onKeyPress={(e) => e.key === "Enter" && sendMessage()}
               />
@@ -839,7 +845,11 @@ useEffect(() => {
       </div>
       {forwardModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-20">
-          <div className={`p-6 rounded-lg shadow-lg ${isDarkMode ? "bg-gray-800 text-white" : "bg-white text-gray-800"} max-w-md w-full`}>
+          <div
+            className={`p-6 rounded-lg shadow-lg ${
+              isDarkMode ? "bg-gray-800 text-white" : "bg-white text-gray-800"
+            } max-w-md w-full`}
+          >
             <h3 className="text-lg font-semibold mb-4">Forward Message To</h3>
             {admins.length > 0 ? (
               <div className="max-h-60 overflow-y-auto">
@@ -877,7 +887,9 @@ useEffect(() => {
       )}
       <button
         onClick={toggleDarkMode}
-        className={`absolute top-4 right-4 p-3 rounded-full ${isDarkMode ? "bg-gray-700 text-white hover:bg-gray-600" : "bg-gray-200 text-gray-800 hover:bg-gray-300"} transition`}
+        className={`absolute top-4 right-4 p-3 rounded-full ${
+          isDarkMode ? "bg-gray-700 text-white hover:bg-gray-600" : "bg-gray-200 text-gray-800 hover:bg-gray-300"
+        } transition`}
         aria-label="Toggle theme"
       >
         <FontAwesomeIcon icon={isDarkMode ? faSun : faMoon} />
