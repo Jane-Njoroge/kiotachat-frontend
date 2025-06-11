@@ -1,4 +1,3 @@
-// app/adminchatbox/page.tsx
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -16,7 +15,7 @@ import {
 import "@fortawesome/fontawesome-svg-core/styles.css";
 import { config } from "@fortawesome/fontawesome-svg-core";
 import io, { Socket } from "socket.io-client";
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import { Toaster, toast } from "react-hot-toast";
 import DOMPurify from "dompurify";
 
@@ -581,22 +580,41 @@ const AdminChatbox: React.FC = () => {
   };
 
   const selectConversation = async (conv: Conversation) => {
-    const messages = await fetchMessages(conv.id);
-    const updatedConversation = { ...conv, messages };
-    setSelectedConversation(updatedConversation);
-    setConversations((prev) =>
-      prev.map((c) => (c.id === conv.id ? updatedConversation : c))
-    );
-    setMenuMessageId(null);
-    scrollToBottom();
+    if (!conv?.id || !adminId) {
+      toast.error("Invalid conversation selected.", { duration: 3000 });
+      return;
+    }
     try {
+      const messages = await fetchMessages(conv.id);
+      const updatedConversation = { ...conv, messages, unread: 0 };
+      setSelectedConversation(updatedConversation);
+      setConversations((prev) =>
+        prev.map((c) => (c.id === conv.id ? { ...c, unread: 0 } : c))
+      );
+      setMenuMessageId(null);
+      scrollToBottom();
       await axios.post(
         `${BACKEND_URL}/conversations/${conv.id}/read`,
-        {},
-        { withCredentials: true }
+        { userId: adminId },
+        { headers: { "x-user-id": adminId }, withCredentials: true }
       );
-    } catch (error) {
-      console.error("Failed to mark conversation as read:", error);
+    } catch (error: unknown) {
+      let errorMessage = "Failed to load conversation.";
+      if (error instanceof AxiosError) {
+        errorMessage = error.response?.data?.message || errorMessage;
+        if (error.response?.status === 401) {
+          toast.error("Session expired. Please log in.", { duration: 4000 });
+          setTimeout(() => router.push("/login"), 2000);
+          return;
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      toast.error(errorMessage, { duration: 3000 });
+      if (process.env.NODE_ENV === "development") {
+        console.error("Error in selectConversation:", error);
+      }
+      scrollToBottom();
     }
   };
 

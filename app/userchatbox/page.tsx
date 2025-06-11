@@ -1,4 +1,3 @@
-// app/userchatbox/page.tsx
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -16,7 +15,7 @@ import {
 import "@fortawesome/fontawesome-svg-core/styles.css";
 import { config } from "@fortawesome/fontawesome-svg-core";
 import io, { Socket } from "socket.io-client";
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import { Toaster, toast } from "react-hot-toast";
 import DOMPurify from "dompurify";
 
@@ -148,6 +147,7 @@ const Chatbox: React.FC = () => {
       console.error("Failed to fetch conversations:", error);
       toast.error("Failed to fetch conversations. Please try again.");
       if (axios.isAxiosError(error) && error.response?.status === 401) {
+        toast.error("Session expired. Please log in.");
         router.push("/login");
       }
     }
@@ -162,11 +162,15 @@ const Chatbox: React.FC = () => {
       withCredentials: true,
       query: { userId },
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 3,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       randomizationFactor: 0.5,
-      transports: ["websocket", "polling"],
+      extraHeaders: {
+        "x-user-id": userId,
+        Cookie: `userId=${userId}; userRole=USER`,
+      },
+      transports: ["websocket"],
     });
 
     const socket = socketRef.current;
@@ -181,8 +185,7 @@ const Chatbox: React.FC = () => {
         message: err.message,
         stack: err.stack,
         cause: err.cause,
-        type: err.name,
-        context: err,
+        userId,
       });
       toast.error("Failed to connect to server");
     });
@@ -235,7 +238,7 @@ const Chatbox: React.FC = () => {
     });
 
     socket.on("message updated", (updatedMessage: Message) => {
-      console.log("Received message updated:", updatedMessage);
+      console.log("Received updated message:", updatedMessage);
       const normalizedMessage: Message = {
         ...updatedMessage,
         id: String(updatedMessage.id),
@@ -271,22 +274,28 @@ const Chatbox: React.FC = () => {
 
     socket.on("message deleted", (deletedMessage: { id: string; conversationId: string; isDeleted: boolean }) => {
       console.log("Received message deleted:", deletedMessage);
+      const normalizedDeletedMessage = {
+        ...deletedMessage,
+        id: String(deletedMessage.id),
+        conversationId: String(deletedMessage.conversationId),
+        isDeleted: deletedMessage.isDeleted || true,
+      };
       setConversations((prev) =>
         prev.map((conv) =>
-          conv.id === deletedMessage.conversationId
+          conv.id === normalizedDeletedMessage.conversationId
             ? {
                 ...conv,
-                messages: conv.messages.filter((msg) => msg.id !== deletedMessage.id),
+                messages: conv.messages.filter((msg) => msg.id !== normalizedDeletedMessage.id),
               }
             : conv
         )
       );
-      if (selectedConversation?.id === deletedMessage.conversationId) {
+      if (selectedConversation?.id === normalizedDeletedMessage.conversationId) {
         setSelectedConversation((prev) =>
           prev
             ? {
                 ...prev,
-                messages: prev.messages.filter((msg) => msg.id !== deletedMessage.id),
+                messages: prev.messages.filter((msg) => msg.id !== normalizedDeletedMessage.id),
               }
             : prev
         );
@@ -317,6 +326,7 @@ const Chatbox: React.FC = () => {
           (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
         );
       });
+
       if (selectedConversation?.id === normalizedConversation.id) {
         setSelectedConversation(normalizedConversation);
         scrollToBottom();
@@ -325,7 +335,7 @@ const Chatbox: React.FC = () => {
 
     socket.on("error", (error: SocketError) => {
       console.error("Socket error:", error);
-      toast.error(error.message || "Socket error");
+      toast.error(error.message || "Socket error occurred");
       if (error.message?.includes("Invalid userId") || error.message?.includes("validation failed")) {
         router.push("/login");
       }
@@ -436,11 +446,12 @@ const Chatbox: React.FC = () => {
         try {
           await axios.post(
             `${BACKEND_URL}/conversations/${existingConversation.id}/read`,
-            {},
-            { withCredentials: true }
+            { userId },
+            { headers: { "x-user-id": userId }, withCredentials: true }
           );
-        } catch (error) {
+        } catch (error: unknown) {
           console.error("Failed to mark conversation as read:", error);
+          toast.error("Failed to mark conversation as read");
         }
         return;
       }
@@ -593,25 +604,51 @@ const Chatbox: React.FC = () => {
   };
 
   const handleConversationSelect = async (conversation: Conversation) => {
-    const messages = await fetchMessages(conversation.id);
-    const updatedConversation = { ...conversation, messages, unread: 0 };
-    setSelectedConversation(updatedConversation);
-    setConversations((prev) =>
-      prev.map((conv) => (conv.id === conversation.id ? { ...conv, unread: 0 } : conv))
-    );
-    setShowChatMessages(true);
-    setMenuMessageId(null);
-    setSearchQuery("");
-    setSearchResults([]);
-    scrollToBottom();
+    if (!conversation?.id || !userId) {
+      toast.error("Invalid conversation selected.", { duration: 3000 });
+      return;
+    }
+    const convId = String(conversation.id);
+    if (!convId.match(/^\d+$/)) {
+      toast.error("Invalid conversation ID format.", { duration: 3000 });
+      return;
+    }
+    console.log("Selecting conversation:", { convId, type: typeof convId, userId });
     try {
-      await axios.post(
-        `${BACKEND_URL}/conversations/${conversation.id}/read`,
-        {},
-        { withCredentials: true }
+      const messages = await fetchMessages(convId);
+      const updatedConversation = { ...conversation, id: convId, messages, unread: 0 };
+      setSelectedConversation(updatedConversation);
+      setConversations((prev) =>
+        prev.map((conv) => (conv.id === convId ? { ...conv, unread: 0 } : conv))
       );
-    } catch (error) {
-      console.error("Failed to mark conversation as read:", error);
+      setShowChatMessages(true);
+      setMenuMessageId(null);
+      setSearchQuery("");
+      setSearchResults([]);
+      scrollToBottom();
+      await axios.post(
+        `${BACKEND_URL}/conversations/${convId}/read`,
+        { userId },
+        { headers: { "x-user-id": userId }, withCredentials: true }
+      );
+    } catch (error: unknown) {
+      let errorMessage = "Failed to load conversation.";
+      if (error instanceof AxiosError) {
+        errorMessage = error.response?.data?.message || errorMessage;
+        if (error.response?.status === 401) {
+          toast.error("Session expired. Please log in.", { duration: 4000 });
+          setTimeout(() => router.push("/login"), 2000);
+          return;
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      toast.error(errorMessage, { duration: 3000 });
+      if (process.env.NODE_ENV === "development") {
+        console.error("Error in handleConversationSelect:", error);
+      }
+      setShowChatMessages(true);
+      scrollToBottom();
     }
   };
 
@@ -671,7 +708,7 @@ const Chatbox: React.FC = () => {
               placeholder="Search admins..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-full px-4 py-2 mt-3 rounded-full border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
+              className={`w-full px-4 py-2 mt-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
                 isDarkMode
                   ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
                   : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
@@ -681,16 +718,16 @@ const Chatbox: React.FC = () => {
               <div
                 className={`mt-2 rounded-lg shadow-lg ${isDarkMode ? "bg-gray-800 border-gray-600" : "bg-white border-gray-200"} border max-h-48 overflow-y-auto`}
               >
-                {searchResults.map((admin) => (
+                {searchResults.map((user) => (
                   <div
-                    key={admin.id}
+                    key={user.id}
                     className={`flex items-center px-3 py-2 ${isDarkMode ? "hover:bg-gray-700" : "hover:bg-gray-100"} cursor-pointer rounded-lg transition`}
-                    onClick={() => selectOrCreateConversation(admin.id)}
+                    onClick={() => selectOrCreateConversation(user.id)}
                   >
                     <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
-                      {admin.fullName[0]?.toUpperCase() || "?"}
+                      {user.fullName[0]?.toUpperCase() || "?"}
                     </div>
-                    <span className="ml-2">{admin.fullName}</span>
+                    <span className="ml-2">{user.fullName}</span>
                   </div>
                 ))}
               </div>
@@ -779,7 +816,7 @@ const Chatbox: React.FC = () => {
               </button>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
-                  {getPartnerName(selectedConversation)?.[0]?.toUpperCase() || "?"}
+                  {getPartnerName(selectedConversation)?.[0]?.toUpperCase() || ""}
                 </div>
                 <span className="text-lg font-semibold">{getPartnerName(selectedConversation)}</span>
               </div>
@@ -792,7 +829,7 @@ const Chatbox: React.FC = () => {
             {selectedConversation?.messages?.map((msg) => (
               <div
                 key={msg.id}
-                className={`flex ${msg.sender.id === userId ? "justify-end" : "justify-start"} group relative`}
+                className={`flex ${msg.sender?.id === userId ? "justify-end" : "justify-start"} group relative`}
               >
                 <div
                   className={`relative p-3 rounded-lg max-w-[70%] text-sm transition-colors ${
@@ -802,7 +839,7 @@ const Chatbox: React.FC = () => {
                         : "bg-gray-700 text-white hover:bg-gray-600"
                       : msg.sender.id === userId
                       ? "bg-blue-500 text-white hover:bg-blue-600"
-                      : "bg-white hover:bg-gray-200 shadow-sm"
+                      : "bg-white text-gray-800 hover:bg-gray-200 shadow-sm"
                   }`}
                 >
                   {editingMessageId === msg.id ? (
@@ -812,11 +849,7 @@ const Chatbox: React.FC = () => {
                         type="text"
                         value={editedContent}
                         onChange={(e) => setEditedContent(e.target.value)}
-                        className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
-                          isDarkMode
-                            ? "bg-gray-700 text-white border-gray-600"
-                            : "bg-white text-gray-900 border-gray-200"
-                        }`}
+                        className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-blue-500 bg-${isDarkMode ? "gray-700 text-white" : "white text-gray-900"} border-${isDarkMode ? "gray-600" : "gray-200"}`}
                         onKeyPress={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
@@ -824,10 +857,10 @@ const Chatbox: React.FC = () => {
                           }
                         }}
                       />
-                      <div className="mt-2 flex justify-end gap-2">
+                      <div className="mt-2 flex justify-between gap-x-2">
                         <button
                           onClick={() => editMessage()}
-                          className="text-green-500 hover:text-green-600 text-sm"
+                          className="text-green-500 hover:text-green-400 text-sm"
                           aria-label="Save edit"
                         >
                           Save
@@ -858,47 +891,41 @@ const Chatbox: React.FC = () => {
                       </p>
                     </>
                   )}
+                  {msg.sender.id === userId && (
+                    <button
+                      onClick={() => toggleMessageMenu(msg.id)}
+                      className="absolute top-2 right-2 p-1 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                      aria-label="Toggle menu"
+                    >
+                      <FontAwesomeIcon icon={faEllipsisV} className="w-4 h-4" />
+                    </button>
+                  )}
+                  {msg.sender.id === userId && menuMessageId === msg.id && !editingMessageId && (
+                    <div
+                      ref={menuRef}
+                      className={`absolute top-full right-0 mt-2 w-32 bg-white dark:bg-gray-800 rounded-lg shadow-lg border ${isDarkMode ? "border-gray-600" : "border-gray-200"} z-10`}
+                    >
+                      <button
+                        onClick={() => {
+                          setEditingMessageId(msg.id);
+                          setEditedContent(msg.content);
+                          setMenuMessageId(null);
+                        }}
+                        className={`w-full px-4 py-2 text-sm flex items-center ${isDarkMode ? "text-gray-200 hover:bg-gray-700" : "text-gray-700 hover:bg-gray-100"} transition-colors`}
+                      >
+                        <FontAwesomeIcon icon={faEdit} className="mr-2 w-4 h-4" />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => deleteMessage(msg.id)}
+                        className={`w-full px-4 py-2 text-sm flex items-center ${isDarkMode ? "text-red-400 hover:bg-gray-700" : "text-red-600 hover:bg-gray-100"} transition-colors`}
+                      >
+                        <FontAwesomeIcon icon={faTrash} className="mr-2 w-4 h-4" />
+                        Delete
+                      </button>
+                    </div>
+                  )}
                 </div>
-                {msg.sender.id === userId && (
-                  <button
-                    onClick={() => toggleMessageMenu(msg.id)}
-                    className="absolute top-2 right-2 p-1 text-gray-400 opacity-0 group-hover:opacity-100 transition-colors cursor-pointer"
-                    aria-label="Toggle menu"
-                  >
-                    <FontAwesomeIcon icon={faEllipsisV} className="w-4 h-4" />
-                  </button>
-                )}
-                {msg.sender.id === userId && menuMessageId === msg.id && !editingMessageId && (
-                  <div
-                    ref={menuRef}
-                    className={`absolute top-full right-0 mt-2 w-32 bg-white dark:bg-gray-800 rounded-lg shadow-lg border ${
-                      isDarkMode ? "border-gray-600" : "border-gray-200"
-                    } z-10`}
-                  >
-                    <button
-                      onClick={() => {
-                        setEditingMessageId(msg.id);
-                        setEditedContent(msg.content);
-                        setMenuMessageId(null);
-                      }}
-                      className={`w-full px-4 py-2 text-sm flex items-center ${
-                        isDarkMode ? "text-gray-200 hover:bg-gray-700" : "text-gray-700 hover:bg-gray-100"
-                      } transition-colors`}
-                    >
-                      <FontAwesomeIcon icon={faEdit} className="mr-2 w-4 h-4" />
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => deleteMessage(msg.id)}
-                      className={`w-full px-4 py-2 text-sm flex items-center ${
-                        isDarkMode ? "text-red-400 hover:bg-gray-700" : "text-red-600 hover:bg-gray-100"
-                      } transition-colors`}
-                    >
-                      <FontAwesomeIcon icon={faTrash} className="mr-2 w-4 h-4" />
-                      Delete
-                    </button>
-                  </div>
-                )}
               </div>
             ))}
             <div ref={messagesEndRef} />
@@ -913,11 +940,7 @@ const Chatbox: React.FC = () => {
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder="Type a message..."
-                className={`flex-1 px-4 py-2 rounded-full border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
-                  isDarkMode
-                    ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
-                    : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
-                }`}
+                className={`flex-1 px-4 py-2 rounded-full border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${isDarkMode ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400" : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"}`}
                 onKeyPress={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
