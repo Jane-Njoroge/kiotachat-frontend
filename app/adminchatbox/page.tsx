@@ -1,3 +1,4 @@
+// app/adminchatbox/page.tsx
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -95,7 +96,7 @@ const AdminChatbox: React.FC = () => {
 
         setAdminId(userId);
         setRole(role);
-        localStorage.setItem("fullName", fullName); // Only store non-sensitive data
+        localStorage.setItem("fullName", fullName);
       } catch (error) {
         console.error("Failed to fetch user:", error);
         toast.error("Authentication failed");
@@ -105,7 +106,48 @@ const AdminChatbox: React.FC = () => {
     fetchUser();
   }, [router]);
 
-  // Initialize socket and fetch conversations
+  // Define fetchConversations before socket useEffect
+  const fetchConversations = useCallback(async () => {
+    if (!adminId) return;
+    try {
+      const response = await axios.get<Conversation[]>(`${BACKEND_URL}/conversations`, {
+        params: { userId: adminId, role: "ADMIN" },
+        headers: { "x-user-id": adminId },
+        withCredentials: true,
+      });
+      const uniqueConversations = Array.from(
+        new Map(
+          response.data.map((conv) => [
+            conv.id,
+            {
+              ...conv,
+              id: String(conv.id),
+              participant1: { ...conv.participant1, id: String(conv.participant1.id) },
+              participant2: { ...conv.participant2, id: String(conv.participant2.id) },
+              messages: conv.messages.map((msg) => ({
+                ...msg,
+                id: String(msg.id),
+                sender: { ...msg.sender, id: String(msg.sender.id) },
+                conversationId: String(msg.conversationId),
+                isEdited: msg.isEdited || false,
+                isForwarded: msg.isForwarded || false,
+              })),
+              unread: conv.unread || 0,
+            },
+          ])
+        ).values()
+      ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      setConversations(uniqueConversations);
+    } catch (error: unknown) {
+      console.error("Failed to fetch conversations:", error);
+      toast.error("Failed to fetch conversations. Please try again.");
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        router.push("/login");
+      }
+    }
+  }, [adminId, router]);
+
+  // Initialize socket and handle events
   useEffect(() => {
     if (!adminId || !role) return;
 
@@ -288,7 +330,7 @@ const AdminChatbox: React.FC = () => {
     return () => {
       socket.disconnect();
     };
-  }, [adminId, role, selectedConversation, router]);
+  }, [adminId, role, selectedConversation, router, fetchConversations]);
 
   useEffect(() => {
     if (editingMessageId && editInputRef.current) {
@@ -307,46 +349,6 @@ const AdminChatbox: React.FC = () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
-
-  const fetchConversations = useCallback(async () => {
-    if (!adminId) return;
-    try {
-      const response = await axios.get<Conversation[]>(`${BACKEND_URL}/conversations`, {
-        params: { userId: adminId, role: "ADMIN" },
-        headers: { "x-user-id": adminId },
-        withCredentials: true,
-      });
-      const uniqueConversations = Array.from(
-        new Map(
-          response.data.map((conv) => [
-            conv.id,
-            {
-              ...conv,
-              id: String(conv.id),
-              participant1: { ...conv.participant1, id: String(conv.participant1.id) },
-              participant2: { ...conv.participant2, id: String(conv.participant2.id) },
-              messages: conv.messages.map((msg) => ({
-                ...msg,
-                id: String(msg.id),
-                sender: { ...msg.sender, id: String(msg.sender.id) },
-                conversationId: String(msg.conversationId),
-                isEdited: msg.isEdited || false,
-                isForwarded: msg.isForwarded || false,
-              })),
-              unread: conv.unread || 0,
-            },
-          ])
-        ).values()
-      ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      setConversations(uniqueConversations);
-    } catch (error: unknown) {
-      console.error("Failed to fetch conversations:", error);
-      toast.error("Failed to fetch conversations. Please try again.");
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        router.push("/login");
-      }
-    }
-  }, [adminId, router]);
 
   useEffect(() => {
     fetchConversations();

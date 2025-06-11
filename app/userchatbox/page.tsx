@@ -1,4 +1,4 @@
-
+// app/userchatbox/page.tsx
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -112,6 +112,47 @@ const Chatbox: React.FC = () => {
     document.documentElement.classList.toggle("dark", savedTheme);
   }, []);
 
+  // Define fetchConversations before socket useEffect
+  const fetchConversations = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const response = await axios.get<Conversation[]>(`${BACKEND_URL}/conversations`, {
+        params: { userId, role: "USER" },
+        headers: { "x-user-id": userId },
+        withCredentials: true,
+      });
+      const uniqueConversations = Array.from(
+        new Map(
+          response.data.map((conv) => [
+            conv.id,
+            {
+              ...conv,
+              id: String(conv.id),
+              participant1: { ...conv.participant1, id: String(conv.participant1.id) },
+              participant2: { ...conv.participant2, id: String(conv.participant2.id) },
+              messages: conv.messages.map((msg) => ({
+                ...msg,
+                id: String(msg.id),
+                sender: { ...msg.sender, id: String(msg.sender.id) },
+                conversationId: String(msg.conversationId),
+                isEdited: msg.isEdited || false,
+                isDeleted: msg.isDeleted || false,
+              })),
+              unread: conv.unread || 0,
+            },
+          ])
+        ).values()
+      ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      setConversations(uniqueConversations);
+    } catch (error: unknown) {
+      console.error("Failed to fetch conversations:", error);
+      toast.error("Failed to fetch conversations. Please try again.");
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        router.push("/login");
+      }
+    }
+  }, [userId, router]);
+
   // Setup socket connection
   useEffect(() => {
     if (!userId || !role) return;
@@ -141,7 +182,7 @@ const Chatbox: React.FC = () => {
         stack: err.stack,
         cause: err.cause,
         type: err.name,
-        context:err,
+        context: err,
       });
       toast.error("Failed to connect to server");
     });
@@ -293,7 +334,7 @@ const Chatbox: React.FC = () => {
     return () => {
       socket.disconnect();
     };
-  }, [userId, role, selectedConversation, router]);
+  }, [userId, role, selectedConversation, router, fetchConversations]);
 
   // Close menu on outside click
   useEffect(() => {
@@ -315,47 +356,6 @@ const Chatbox: React.FC = () => {
       editInputRef.current?.focus();
     }
   }, [editingMessageId]);
-
-  // Fetch conversations
-  const fetchConversations = useCallback(async () => {
-    if (!userId) return;
-    try {
-      const response = await axios.get<Conversation[]>(`${BACKEND_URL}/conversations`, {
-        params: { userId, role: "USER" },
-        headers: { "x-user-id": userId },
-        withCredentials: true,
-      });
-      const uniqueConversations = Array.from(
-        new Map(
-          response.data.map((conv) => [
-            conv.id,
-            {
-              ...conv,
-              id: String(conv.id),
-              participant1: { ...conv.participant1, id: String(conv.participant1.id) },
-              participant2: { ...conv.participant2, id: String(conv.participant2.id) },
-              messages: conv.messages.map((msg) => ({
-                ...msg,
-                id: String(msg.id),
-                sender: { ...msg.sender, id: String(msg.sender.id) },
-                conversationId: String(msg.conversationId),
-                isEdited: msg.isEdited || false,
-                isDeleted: msg.isDeleted || false,
-              })),
-              unread: conv.unread || 0,
-            },
-          ])
-        ).values()
-      ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      setConversations(uniqueConversations);
-    } catch (error: unknown) {
-      console.error("Failed to fetch conversations:", error);
-      toast.error("Failed to fetch conversations. Please try again.");
-      if (axios.isAxiosError(error) && error.response?.status === 401) {
-        router.push("/login");
-      }
-    }
-  }, [userId, router]);
 
   useEffect(() => {
     if (userId) {
