@@ -41,11 +41,15 @@ const Register = () => {
     }
 
     try {
+      console.log("BACKEND_URL:", process.env.NEXT_PUBLIC_BACKEND_URL);
       const response = await axios.post(`${BACKEND_URL}/register`, {
         fullName,
         email,
         phoneNumber,
         password,
+      }, {
+        withCredentials: true,
+        timeout: 60000,
       });
 
       console.log("Register response:", response.data);

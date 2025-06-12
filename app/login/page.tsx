@@ -37,11 +37,16 @@ const Login = () => {
     }
   
     try {
+      console.log("BACKEND_URL:", process.env.NEXT_PUBLIC_BACKEND_URL);
       const response = await axios.post(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/login`,
         {
           email,
           password,
+        },
+        {
+          withCredentials:true,
+          timeout:60000,
         }
       );
       if (response.status === 200){}
