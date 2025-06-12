@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState } from "react";
@@ -21,51 +22,72 @@ interface RegisterResponse {
 }
 
 const Register = () => {
-  const [fullName, setFullName] = useState<string>("");
-  const [email, setEmail] = useState<string>("");
-  const [phoneNumber, setPhoneNumber] = useState<string>("");
-  const [password, setPassword] = useState<string>("");
-  const [confirmPassword, setConfirmPassword] = useState<string>("");
+  const [formData, setFormData] = useState({
+    fullName: "",
+    email: "",
+    phoneNumber: "",
+    password: "",
+    confirmPassword: "",
+  });
+  const [errors, setErrors] = useState({
+    fullName: "",
+    email: "",
+    phoneNumber: "",
+    password: "",
+    confirmPassword: "",
+  });
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
-  const [error, setError] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const router = useRouter();
 
   const validateInputs = () => {
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError("Invalid email format.");
-      return false;
+    const newErrors = {
+      fullName: "",
+      email: "",
+      phoneNumber: "",
+      password: "",
+      confirmPassword: "",
+    };
+    let isValid = true;
+
+    if (!formData.fullName.trim()) {
+      newErrors.fullName = "Please tell us your full name.";
+      isValid = false;
     }
-    if (!/^\+?\d{10,15}$/.test(phoneNumber)) {
-      setError("Invalid phone number format.");
-      return false;
+    if (!formData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = "We need a valid email address.";
+      isValid = false;
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return false;
+    if (!formData.phoneNumber || !/^\+?\d{4,15}$/.test(formData.phoneNumber)) {
+      newErrors.phoneNumber = "Please enter a valid phone number (4-15 digits).";
+      isValid = false;
     }
-    return true;
+    if (!formData.password || /\s/.test(formData.password)) {
+      newErrors.password = "Your password can’t be empty or have spaces.";
+      isValid = false;
+    }
+    if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = "Passwords don’t match. Please check again.";
+      isValid = false;
+    }
+
+    setErrors(newErrors);
+    return isValid;
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError("");
     setIsLoading(true);
 
-    if (!fullName || !email || !phoneNumber || !password || !confirmPassword) {
-      setError("Please enter all your details.");
-      setIsLoading(false);
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+    if (!formData.fullName || !formData.email || !formData.phoneNumber || !formData.password || !formData.confirmPassword) {
+      toast.error("Looks like you missed a field. Please fill in all details.");
       setIsLoading(false);
       return;
     }
 
     if (!validateInputs()) {
+      toast.error("Please fix the highlighted fields to continue.");
       setIsLoading(false);
       return;
     }
@@ -74,7 +96,12 @@ const Register = () => {
       console.log("Sending request to:", `${BACKEND_URL}/register`);
       const response = await axios.post<RegisterResponse>(
         `${BACKEND_URL}/register`,
-        { fullName, email, phoneNumber, password },
+        {
+          fullName: formData.fullName,
+          email: formData.email,
+          phoneNumber: formData.phoneNumber,
+          password: formData.password,
+        },
         {
           withCredentials: true,
           timeout: 60000,
@@ -83,32 +110,41 @@ const Register = () => {
       );
 
       console.log("Register response:", response.data);
-      toast.success(response.data.message || "Registration successful");
+      toast.success("You’re all set! Head to the login page to get started.");
       router.push("/login");
     } catch (error) {
-      const errDetails = {
-        message: error instanceof Error ? error.message : "Unknown error",
-        code: error instanceof AxiosError ? error.code : undefined,
-        response: error instanceof AxiosError ? error.response?.data : undefined,
-        status: error instanceof AxiosError ? error.response?.status : undefined,
-      };
-      console.error("Registration error:", errDetails);
-
-      if (error instanceof AxiosError) {
-        if (error.code === "ERR_CORS") {
-          setError("CORS error. Please check backend configuration.");
-        } else if (error.response?.status === 400) {
-          setError(error.response.data.message || "Invalid registration data.");
-        } else {
-          setError(error.response?.data?.message || "Failed to register. Please try again.");
+      let errorMessage = "Something went wrong. Please try again later.";
+      if (error instanceof AxiosError && error.response) {
+        switch (error.response.data.message) {
+          case "This email is already registered. Please login.":
+            errorMessage = "This email’s already taken. Try logging in or using another one!";
+            break;
+          case "Please enter a valid email address.":
+            errorMessage = "That email doesn’t look right. Please check it.";
+            break;
+          case "Please enter a valid phone number (4-15 digits).":
+            errorMessage = "Your phone number needs to be 4-15 digits.";
+            break;
+          case "Password cannot be empty or contain spaces.":
+            errorMessage = "Your password can’t be empty or have spaces.";
+            break;
+          default:
+            errorMessage = error.response.data.message || errorMessage;
         }
       } else {
-        setError("Network error. Please check your connection.");
+        errorMessage = "Network issue. Please check your connection and try again.";
       }
-      toast.error(errDetails.message);
+      toast.error(errorMessage);
+      console.error("Registration error:", error);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+    setErrors({ ...errors, [name]: "" });
   };
 
   const togglePasswordVisibility = () => setShowPassword((prev) => !prev);
@@ -123,22 +159,23 @@ const Register = () => {
         </div>
         <form onSubmit={handleSubmit} className="space-y-6">
           <p className="text-center text-sm text-gray-600 mb-6">
-            Register with us to enjoy the full experience
+            Let’s get you started with Kiotapay! Fill in your details below.
           </p>
-          {error && <p className="text-center text-sm text-red-600">{error}</p>}
           <div>
             <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-1">
               Full Name
             </label>
             <input
               id="fullName"
+              name="fullName"
               type="text"
-              placeholder="Enter Full Name"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
+              placeholder="What’s your full name?"
+              value={formData.fullName}
+              onChange={handleChange}
               className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] text-gray-900 placeholder-gray-500"
               required
             />
+            {errors.fullName && <p className="mt-1 text-sm text-red-600">{errors.fullName}</p>}
           </div>
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
@@ -146,13 +183,15 @@ const Register = () => {
             </label>
             <input
               id="email"
+              name="email"
               type="email"
-              placeholder="Enter Email Address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Your email address"
+              value={formData.email}
+              onChange={handleChange}
               className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] text-gray-900 placeholder-gray-500"
               required
             />
+            {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
           </div>
           <div>
             <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 mb-1">
@@ -160,13 +199,15 @@ const Register = () => {
             </label>
             <input
               id="phoneNumber"
+              name="phoneNumber"
               type="tel"
-              placeholder="Enter Phone Number"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
+              placeholder="Your phone number (e.g., +1234567890)"
+              value={formData.phoneNumber}
+              onChange={handleChange}
               className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] text-gray-900 placeholder-gray-500"
               required
             />
+            {errors.phoneNumber && <p className="mt-1 text-sm text-red-600">{errors.phoneNumber}</p>}
           </div>
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
@@ -175,10 +216,11 @@ const Register = () => {
             <div className="relative">
               <input
                 id="password"
+                name="password"
                 type={showPassword ? "text" : "password"}
-                placeholder="Enter Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Choose a password"
+                value={formData.password}
+                onChange={handleChange}
                 className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] text-gray-900 placeholder-gray-500"
                 required
               />
@@ -191,6 +233,7 @@ const Register = () => {
                 <FontAwesomeIcon icon={showPassword ? faEyeSlash : faEye} />
               </button>
             </div>
+            {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password}</p>}
           </div>
           <div>
             <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
@@ -199,10 +242,11 @@ const Register = () => {
             <div className="relative">
               <input
                 id="confirmPassword"
+                name="confirmPassword"
                 type={showConfirmPassword ? "text" : "password"}
-                placeholder="Confirm Password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Confirm your password"
+                value={formData.confirmPassword}
+                onChange={handleChange}
                 className="mt-1 w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#005555] text-gray-900 placeholder-gray-500"
                 required
               />
@@ -215,19 +259,20 @@ const Register = () => {
                 <FontAwesomeIcon icon={showConfirmPassword ? faEyeSlash : faEye} />
               </button>
             </div>
+            {errors.confirmPassword && <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>}
           </div>
           <button
             type="submit"
             className="w-full py-3 bg-[#005555] text-white rounded-md hover:bg-[#004444] transition-colors text-sm font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed"
             disabled={isLoading}
           >
-            {isLoading ? "Registering..." : "Register"}
+            {isLoading ? "Creating your account..." : "Create Account"}
           </button>
         </form>
         <p className="mt-4 text-center text-sm text-gray-600">
-          Already have an account?{" "}
+          Already with Kiotapay?{" "}
           <Link href="/login" className="text-[#005555] hover:underline">
-            Login
+            Sign in here
           </Link>
         </p>
       </div>
