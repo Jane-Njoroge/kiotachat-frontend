@@ -41,10 +41,15 @@ const OTPContent: React.FC = () => {
       toast.success("OTP verified successfully! Redirecting...");
       localStorage.setItem("fullName", response.data.fullName || email);
 
-      if (response.data.role.toUpperCase() === "ADMIN") {
+      // Normalize role to uppercase to avoid case-sensitivity issues
+      const role = response.data.role?.toUpperCase();
+      if (role === "ADMIN") {
         router.push("/adminchatbox");
-      } else {
+      } else if (role === "USER") {
         router.push("/userchatbox");
+      } else {
+        toast.error("Invalid role received. Please contact support.");
+        router.push("/login");
       }
     } catch (err: unknown) {
       const message = axios.isAxiosError(err)
