@@ -11,6 +11,7 @@
 //   faEdit,
 //   faTrash,
 //   faShare,
+//   faPaperclip, // Added for file attachment
 // } from "@fortawesome/free-solid-svg-icons";
 // import "@fortawesome/fontawesome-svg-core/styles.css";
 // import { config } from "@fortawesome/fontawesome-svg-core";
@@ -70,13 +71,15 @@
 //   const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
 //   const [forwardContent, setForwardContent] = useState("");
 //   const [admins, setAdmins] = useState<User[]>([]);
+//   const [, setSelectedFile] = useState<File | null>(null); // New state for file
 //   const socketRef = useRef<Socket | null>(null);
 //   const messagesEndRef = useRef<HTMLDivElement>(null);
 //   const menuRef = useRef<HTMLDivElement>(null);
 //   const editInputRef = useRef<HTMLInputElement>(null);
+//   const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
 //   const router = useRouter();
 
-
+//   // Fetch user data from /me endpoint
 //   useEffect(() => {
 //     const fetchUser = async () => {
 //       try {
@@ -105,7 +108,7 @@
 //     fetchUser();
 //   }, [router]);
 
-  
+//   // Define fetchConversations before socket useEffect
 //   const fetchConversations = useCallback(async () => {
 //     if (!adminId) return;
 //     try {
@@ -146,6 +149,7 @@
 //     }
 //   }, [adminId, router]);
 
+//   // Initialize socket and handle events
 //   useEffect(() => {
 //     if (!adminId || !role) return;
 
@@ -448,6 +452,103 @@
 //     }
 //   };
 
+//   // Handle file upload
+//   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+//     const file = e.target.files?.[0];
+//     if (!file) return;
+
+//     // Validate file type and size
+//     const allowedTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
+//     const maxSize = 5 * 1024 * 1024; // 5MB
+//     if (!allowedTypes.includes(file.type)) {
+//       toast.error("Only PNG, JPEG, GIF, or PDF files are allowed");
+//       return;
+//     }
+//     if (file.size > maxSize) {
+//       toast.error("File size must be less than 5MB");
+//       return;
+//     }
+
+//     setSelectedFile(file);
+
+//     // Upload file
+//     try {
+//       const formData = new FormData();
+//       formData.append("file", file);
+//       const response = await axios.post(`${BACKEND_URL}/messages/upload`, formData, {
+//         headers: {
+//           "x-user-id": adminId,
+//           "Content-Type": "multipart/form-data",
+//         },
+//         withCredentials: true,
+//       });
+//       const { fileUrl } = response.data;
+
+//       // Format message content based on file type
+//       let content: string;
+//       if (file.type.startsWith("image/")) {
+//         content = `<img src="${fileUrl}" alt="${file.name}" class="max-w-[200px] rounded-lg" />`;
+//       } else {
+//         content = `<a href="${fileUrl}" target="_blank" class="text-blue-500 underline">${file.name}</a>`;
+//       }
+
+//       // Send as a message
+//       if (selectedConversation && socketRef.current && adminId) {
+//         const tempId = `temp-${Date.now()}`;
+//         const optimisticMessage: Message = {
+//           id: tempId,
+//           content,
+//           sender: {
+//             id: adminId,
+//             fullName: localStorage.getItem("fullName") || "Admin",
+//             email: localStorage.getItem("email") || "",
+//             role: "ADMIN",
+//           },
+//           createdAt: new Date().toISOString(),
+//           conversationId: selectedConversation.id,
+//           isEdited: false,
+//           isForwarded: false,
+//         };
+//         socketRef.current.emit("private message", {
+//           content,
+//           to:
+//             selectedConversation.participant1.id === adminId
+//               ? selectedConversation.participant2.id
+//               : selectedConversation.participant1.id,
+//           from: adminId,
+//           conversationId: selectedConversation.id,
+//         });
+//         setSelectedConversation((prev) =>
+//           prev ? { ...prev, messages: [...prev.messages, optimisticMessage] } : prev
+//         );
+//         setConversations((prev) =>
+//           prev.map((conv) =>
+//             conv.id === selectedConversation.id
+//               ? {
+//                   ...conv,
+//                   messages: [...conv.messages, optimisticMessage],
+//                   updatedAt: new Date().toISOString(),
+//                 }
+//               : conv
+//           )
+//         );
+//         scrollToBottom();
+//       }
+
+//       setSelectedFile(null);
+//       if (fileInputRef.current) {
+//         fileInputRef.current.value = ""; // Reset file input
+//       }
+//     } catch (error) {
+//       console.error("Failed to upload file:", error);
+//       toast.error("Failed to upload file");
+//       setSelectedFile(null);
+//       if (fileInputRef.current) {
+//         fileInputRef.current.value = "";
+//       }
+//     }
+//   };
+
 //   const sendMessage = () => {
 //     if (!newMessage.trim() || !selectedConversation || !socketRef.current || !adminId) return;
 //     const tempId = `temp-${Date.now()}`;
@@ -722,7 +823,7 @@
 //                   key={msg.id}
 //                   className={`relative flex ${msg.sender.id === adminId ? "justify-end" : "justify-start"} group`}
 //                 >
-//                   <div
+//                   <div 
 //                     className={`relative p-3 rounded-2xl max-w-[70%] transition-all ${
 //                       msg.sender.id === adminId
 //                         ? "bg-blue-500 text-white"
@@ -772,7 +873,10 @@
 //                       <>
 //                         <p
 //                           dangerouslySetInnerHTML={{
-//                             __html: DOMPurify.sanitize(msg.content),
+//                             __html: DOMPurify.sanitize(msg.content, {
+//                               ALLOWED_TAGS: ["img", "a", "p", "br"],
+//                               ALLOWED_ATTR: ["src", "href", "alt", "class", "target"],
+//                             }),
 //                           }}
 //                         />
 //                         <p className="text-xs mt-1 opacity-70">
@@ -835,12 +939,26 @@
 //                 isDarkMode ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white"
 //               } shadow-inner`}
 //             >
+//               <button
+//                 onClick={() => fileInputRef.current?.click()}
+//                 className="p-3 bg-gray-500 text-white rounded-full hover:bg-gray-600 transition"
+//                 aria-label="Attach file"
+//               >
+//                 <FontAwesomeIcon icon={faPaperclip} />
+//               </button>
+//               <input
+//                 type="file"
+//                 ref={fileInputRef}
+//                 onChange={handleFileChange}
+//                 accept="image/png,image/jpeg,image/gif,application/pdf"
+//                 className="hidden"
+//               />
 //               <input
 //                 type="text"
 //                 value={newMessage}
 //                 onChange={(e) => setNewMessage(e.target.value)}
 //                 placeholder="Type a message..."
-//                 className={`flex-1 p-3 rounded-full border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
+//                 className={`flex-1 mx-3 p-3 rounded-full border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
 //                   isDarkMode
 //                     ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
 //                     : "bg-gray-50 text-gray-800 border-gray-300 placeholder-gray-500"
@@ -849,7 +967,7 @@
 //               />
 //               <button
 //                 onClick={sendMessage}
-//                 className="ml-3 p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition"
+//                 className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition"
 //                 aria-label="Send message"
 //               >
 //                 <FontAwesomeIcon icon={faPaperPlane} />
@@ -919,6 +1037,8 @@
 
 // export default AdminChatbox;
 
+
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -932,7 +1052,7 @@ import {
   faEdit,
   faTrash,
   faShare,
-  faPaperclip, // Added for file attachment
+  faPaperclip,
 } from "@fortawesome/free-solid-svg-icons";
 import "@fortawesome/fontawesome-svg-core/styles.css";
 import { config } from "@fortawesome/fontawesome-svg-core";
@@ -960,6 +1080,10 @@ interface Message {
   conversationId: string;
   isEdited: boolean;
   isForwarded: boolean;
+  fileUrl?: string;
+  fileType?: string;
+  fileSize?: number;
+  fileName?: string;
 }
 
 interface Conversation {
@@ -992,12 +1116,11 @@ const AdminChatbox: React.FC = () => {
   const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
   const [forwardContent, setForwardContent] = useState("");
   const [admins, setAdmins] = useState<User[]>([]);
-  const [, setSelectedFile] = useState<File | null>(null); // New state for file
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
   // Fetch user data from /me endpoint
@@ -1029,7 +1152,7 @@ const AdminChatbox: React.FC = () => {
     fetchUser();
   }, [router]);
 
-  // Define fetchConversations before socket useEffect
+  // Define fetchConversations
   const fetchConversations = useCallback(async () => {
     if (!adminId) return;
     try {
@@ -1054,6 +1177,10 @@ const AdminChatbox: React.FC = () => {
                 conversationId: String(msg.conversationId),
                 isEdited: msg.isEdited || false,
                 isForwarded: msg.isForwarded || false,
+                fileUrl: msg.fileUrl || undefined,
+                fileType: msg.fileType || undefined,
+                fileSize: msg.fileSize || undefined,
+                fileName: msg.fileName || undefined,
               })),
               unread: conv.unread || 0,
             },
@@ -1085,7 +1212,6 @@ const AdminChatbox: React.FC = () => {
       randomizationFactor: 0.5,
       extraHeaders: {
         "x-user-id": adminId,
-        Cookie: `userId=${adminId}; userRole=ADMIN`,
       },
       transports: ["websocket", "polling"],
     });
@@ -1115,6 +1241,10 @@ const AdminChatbox: React.FC = () => {
         conversationId: String(message.conversationId),
         isEdited: message.isEdited || false,
         isForwarded: message.isForwarded || false,
+        fileUrl: message.fileUrl || undefined,
+        fileType: message.fileType || undefined,
+        fileSize: message.fileSize || undefined,
+        fileName: message.fileName || undefined,
       };
       setConversations((prev) => {
         const exists = prev.find((conv) => conv.id === normalizedMessage.conversationId);
@@ -1162,6 +1292,10 @@ const AdminChatbox: React.FC = () => {
         conversationId: String(updatedMessage.conversationId),
         isEdited: true,
         isForwarded: updatedMessage.isForwarded || false,
+        fileUrl: updatedMessage.fileUrl || undefined,
+        fileType: updatedMessage.fileType || undefined,
+        fileSize: updatedMessage.fileSize || undefined,
+        fileName: updatedMessage.fileName || undefined,
       };
       setConversations((prev) =>
         prev.map((conv) =>
@@ -1227,6 +1361,10 @@ const AdminChatbox: React.FC = () => {
           conversationId: String(msg.conversationId),
           isEdited: msg.isEdited || false,
           isForwarded: msg.isForwarded || false,
+          fileUrl: msg.fileUrl || undefined,
+          fileType: msg.fileType || undefined,
+          fileSize: msg.fileSize || undefined,
+          fileName: msg.fileName || undefined,
         })),
         unread: updatedConversation.unread || 0,
       };
@@ -1292,6 +1430,10 @@ const AdminChatbox: React.FC = () => {
         conversationId: String(msg.conversationId),
         isEdited: msg.isEdited || false,
         isForwarded: msg.isForwarded || false,
+        fileUrl: msg.fileUrl || undefined,
+        fileType: msg.fileType || undefined,
+        fileSize: msg.fileSize || undefined,
+        fileName: msg.fileName || undefined,
       }));
     } catch (error: unknown) {
       console.error("Failed to fetch messages:", error);
@@ -1376,9 +1518,8 @@ const AdminChatbox: React.FC = () => {
   // Handle file upload
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !selectedConversation || !adminId || !socketRef.current) return;
 
-    // Validate file type and size
     const allowedTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
     const maxSize = 5 * 1024 * 1024; // 5MB
     if (!allowedTypes.includes(file.type)) {
@@ -1390,80 +1531,85 @@ const AdminChatbox: React.FC = () => {
       return;
     }
 
-    setSelectedFile(file);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append(
+      "to",
+      selectedConversation.participant1.id === adminId
+        ? selectedConversation.participant2.id
+        : selectedConversation.participant1.id
+    );
+    formData.append("conversationId", selectedConversation.id);
 
-    // Upload file
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await axios.post(`${BACKEND_URL}/messages/upload`, formData, {
+      const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
         headers: {
           "x-user-id": adminId,
           "Content-Type": "multipart/form-data",
         },
         withCredentials: true,
       });
-      const { fileUrl } = response.data;
-
-      // Format message content based on file type
-      let content: string;
-      if (file.type.startsWith("image/")) {
-        content = `<img src="${fileUrl}" alt="${file.name}" class="max-w-[200px] rounded-lg" />`;
-      } else {
-        content = `<a href="${fileUrl}" target="_blank" class="text-blue-500 underline">${file.name}</a>`;
+      const { fileUrl, fileType, fileSize, fileName } = response.data.data || {};
+      if (!fileUrl) {
+        throw new Error("File upload response missing fileUrl");
       }
 
-      // Send as a message
-      if (selectedConversation && socketRef.current && adminId) {
-        const tempId = `temp-${Date.now()}`;
-        const optimisticMessage: Message = {
-          id: tempId,
-          content,
-          sender: {
-            id: adminId,
-            fullName: localStorage.getItem("fullName") || "Admin",
-            email: localStorage.getItem("email") || "",
-            role: "ADMIN",
-          },
-          createdAt: new Date().toISOString(),
-          conversationId: selectedConversation.id,
-          isEdited: false,
-          isForwarded: false,
-        };
-        socketRef.current.emit("private message", {
-          content,
-          to:
-            selectedConversation.participant1.id === adminId
-              ? selectedConversation.participant2.id
-              : selectedConversation.participant1.id,
-          from: adminId,
-          conversationId: selectedConversation.id,
-        });
-        setSelectedConversation((prev) =>
-          prev ? { ...prev, messages: [...prev.messages, optimisticMessage] } : prev
-        );
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === selectedConversation.id
-              ? {
-                  ...conv,
-                  messages: [...conv.messages, optimisticMessage],
-                  updatedAt: new Date().toISOString(),
-                }
-              : conv
-          )
-        );
-        scrollToBottom();
-      }
+      const tempId = `temp-${Date.now()}`;
+      const optimisticMessage: Message = {
+        id: tempId,
+        content: "File message",
+        sender: {
+          id: adminId,
+          fullName: localStorage.getItem("fullName") || "Admin",
+          email: localStorage.getItem("email") || "",
+          role: "ADMIN",
+        },
+        createdAt: new Date().toISOString(),
+        conversationId: selectedConversation.id,
+        isEdited: false,
+        isForwarded: false,
+        fileUrl,
+        fileType,
+        fileSize,
+        fileName,
+      };
 
-      setSelectedFile(null);
+      socketRef.current.emit("private message", {
+        content: "File message",
+        to:
+          selectedConversation.participant1.id === adminId
+            ? selectedConversation.participant2.id
+            : selectedConversation.participant1.id,
+        from: adminId,
+        conversationId: selectedConversation.id,
+        fileUrl,
+        fileType,
+        fileSize,
+        fileName,
+      });
+
+      setSelectedConversation((prev) =>
+        prev ? { ...prev, messages: [...prev.messages, optimisticMessage] } : prev
+      );
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === selectedConversation.id
+            ? {
+                ...conv,
+                messages: [...conv.messages, optimisticMessage],
+                updatedAt: new Date().toISOString(),
+              }
+            : conv
+        )
+      );
+      scrollToBottom();
+
       if (fileInputRef.current) {
-        fileInputRef.current.value = ""; // Reset file input
+        fileInputRef.current.value = "";
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Failed to upload file:", error);
-      toast.error("Failed to upload file");
-      setSelectedFile(null);
+      toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file");
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -1744,7 +1890,7 @@ const AdminChatbox: React.FC = () => {
                   key={msg.id}
                   className={`relative flex ${msg.sender.id === adminId ? "justify-end" : "justify-start"} group`}
                 >
-                  <div
+                  <div 
                     className={`relative p-3 rounded-2xl max-w-[70%] transition-all ${
                       msg.sender.id === adminId
                         ? "bg-blue-500 text-white"
@@ -1792,14 +1938,36 @@ const AdminChatbox: React.FC = () => {
                       </div>
                     ) : (
                       <>
-                        <p
-                          dangerouslySetInnerHTML={{
-                            __html: DOMPurify.sanitize(msg.content, {
-                              ALLOWED_TAGS: ["img", "a", "p", "br"],
-                              ALLOWED_ATTR: ["src", "href", "alt", "class", "target"],
-                            }),
-                          }}
-                        />
+                        {msg.fileUrl ? (
+                          <div>
+                            <p>{msg.content}</p>
+                            {msg.fileType?.startsWith("image/") ? (
+                              <img
+                                src={`${BACKEND_URL}${msg.fileUrl}`}
+                                alt={msg.fileName || "Uploaded image"}
+                                className="max-w-[200px] rounded-lg"
+                              />
+                            ) : (
+                              <a
+                                href={`${BACKEND_URL}${msg.fileUrl}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-300 hover:underline"
+                              >
+                                {msg.fileName || "View File"}
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          <p
+                            dangerouslySetInnerHTML={{
+                              __html: DOMPurify.sanitize(msg.content, {
+                                ALLOWED_TAGS: ["img", "a", "p", "br"],
+                                ALLOWED_ATTR: ["src", "href", "alt", "class", "target"],
+                              }),
+                            }}
+                          />
+                        )}
                         <p className="text-xs mt-1 opacity-70">
                           {new Date(msg.createdAt).toLocaleTimeString("en-US", {
                             hour: "2-digit",

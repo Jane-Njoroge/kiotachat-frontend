@@ -11,6 +11,7 @@
 //   faEllipsisV,
 //   faEdit,
 //   faTrash,
+//   faPaperclip, // Added for file attachment
 // } from "@fortawesome/free-solid-svg-icons";
 // import "@fortawesome/fontawesome-svg-core/styles.css";
 // import { config } from "@fortawesome/fontawesome-svg-core";
@@ -68,14 +69,16 @@
 //   const [tab, setTab] = useState<"ALL" | "UNREAD">("ALL");
 //   const [searchQuery, setSearchQuery] = useState("");
 //   const [searchResults, setSearchResults] = useState<User[]>([]);
+//   const [, setSelectedFile] = useState<File | null>(null); // New state for file
 //   const socketRef = useRef<Socket | null>(null);
 //   const messagesEndRef = useRef<HTMLDivElement>(null);
 //   const inputRef = useRef<HTMLInputElement>(null);
 //   const editInputRef = useRef<HTMLInputElement>(null);
 //   const menuRef = useRef<HTMLDivElement>(null);
+//   const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
 //   const router = useRouter();
 
-//   // Fetch user data from /me endpoint
+  
 //   useEffect(() => {
 //     const fetchUser = async () => {
 //       try {
@@ -490,6 +493,106 @@
 //     }
 //   };
 
+ 
+//   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+//     const file = e.target.files?.[0];
+//     if (!file) return;
+
+//     // Validate file type and size
+//     const allowedTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
+//     const maxSize = 5 * 1024 * 1024; // 5MB
+//     if (!allowedTypes.includes(file.type)) {
+//       toast.error("Only PNG, JPEG, GIF, or PDF files are allowed");
+//       return;
+//     }
+//     if (file.size > maxSize) {
+//       toast.error("File size must be less than 5MB");
+//       return;
+//     }
+
+//     setSelectedFile(file);
+
+//     // Upload file
+//     try {
+//       const formData = new FormData();
+//       formData.append("file", file);
+//       const response = await axios.post(`${BACKEND_URL}/messages/upload`, formData, {
+//         headers: {
+//           "x-user-id": userId,
+//           "Content-Type": "multipart/form-data",
+//         },
+//         withCredentials: true,
+//       });
+//       const { fileUrl } = response.data;
+
+//       // Format message content based on file type
+//       let content: string;
+//       if (file.type.startsWith("image/")) {
+//         content = `<img src="${fileUrl}" alt="${file.name}" class="max-w-[200px] rounded-lg" />`;
+//       } else {
+//         content = `<a href="${fileUrl}" target="_blank" class="text-blue-500 underline">${file.name}</a>`;
+//       }
+
+//       // Send as a message
+//       if (selectedConversation && socketRef.current && userId) {
+//         const recipientId =
+//           selectedConversation.participant1.id === userId
+//             ? selectedConversation.participant2.id
+//             : selectedConversation.participant1.id;
+//         const tempMessageId = `temp-${Date.now()}`;
+//         const tempMessage: Message = {
+//           id: tempMessageId,
+//           content,
+//           sender: {
+//             id: userId,
+//             fullName: localStorage.getItem("fullName") || "User",
+//             email: localStorage.getItem("email") || "",
+//             role: "USER",
+//           },
+//           createdAt: new Date().toISOString(),
+//           conversationId: selectedConversation.id,
+//           isEdited: false,
+//           isDeleted: false,
+//         };
+
+//         socketRef.current.emit("private message", {
+//           content,
+//           to: recipientId,
+//           from: userId,
+//           conversationId: selectedConversation.id,
+//         });
+
+//         setSelectedConversation((prev) =>
+//           prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev
+//         );
+//         setConversations((prev) =>
+//           prev.map((conv) =>
+//             conv.id === selectedConversation.id
+//               ? {
+//                   ...conv,
+//                   messages: [...conv.messages, tempMessage],
+//                   updatedAt: new Date().toISOString(),
+//                 }
+//               : conv
+//           )
+//         );
+//         scrollToBottom();
+//       }
+
+//       setSelectedFile(null);
+//       if (fileInputRef.current) {
+//         fileInputRef.current.value = ""; // Reset file input
+//       }
+//     } catch (error) {
+//       console.error("Failed to upload file:", error);
+//       toast.error("Failed to upload file");
+//       setSelectedFile(null);
+//       if (fileInputRef.current) {
+//         fileInputRef.current.value = "";
+//       }
+//     }
+//   };
+
 //   const sendMessage = () => {
 //     if (!message.trim() || !selectedConversation || !userId || !socketRef.current) return;
 
@@ -882,7 +985,10 @@
 //                     <>
 //                       <p
 //                         dangerouslySetInnerHTML={{
-//                           __html: DOMPurify.sanitize(msg.content),
+//                           __html: DOMPurify.sanitize(msg.content, {
+//                             ALLOWED_TAGS: ["img", "a", "p", "br"],
+//                             ALLOWED_ATTR: ["src", "href", "alt", "class", "target"],
+//                           }),
 //                         }}
 //                       />
 //                       <p className="text-xs mt-1 opacity-75 flex justify-end">
@@ -934,6 +1040,20 @@
 //             className={`sticky bottom-0 p-4 border-t ${isDarkMode ? "bg-gray-800 border-gray-600" : "bg-white border-gray-200"}`}
 //           >
 //             <div className="flex items-center gap-2">
+//               <button
+//                 onClick={() => fileInputRef.current?.click()}
+//                 className="p-2 bg-gray-500 text-white rounded-full hover:bg-gray-600 transition"
+//                 aria-label="Attach file"
+//               >
+//                 <FontAwesomeIcon icon={faPaperclip} className="w-5 h-5" />
+//               </button>
+//               <input
+//                 type="file"
+//                 ref={fileInputRef}
+//                 onChange={handleFileChange}
+//                 accept="image/png,image/jpeg,image/gif,application/pdf"
+//                 className="hidden"
+//               />
 //               <input
 //                 ref={inputRef}
 //                 type="text"
@@ -966,6 +1086,7 @@
 // export default Chatbox;
 
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -979,7 +1100,7 @@ import {
   faEllipsisV,
   faEdit,
   faTrash,
-  faPaperclip, // Added for file attachment
+  faPaperclip,
 } from "@fortawesome/free-solid-svg-icons";
 import "@fortawesome/fontawesome-svg-core/styles.css";
 import { config } from "@fortawesome/fontawesome-svg-core";
@@ -1007,6 +1128,10 @@ interface Message {
   conversationId: string;
   isEdited: boolean;
   isDeleted?: boolean;
+  fileUrl?: string;
+  fileType?: string;
+  fileSize?: number;
+  fileName?: string;
 }
 
 interface Conversation {
@@ -1037,16 +1162,14 @@ const Chatbox: React.FC = () => {
   const [tab, setTab] = useState<"ALL" | "UNREAD">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<User[]>([]);
-  const [, setSelectedFile] = useState<File | null>(null); // New state for file
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  // Fetch user data from /me endpoint
   useEffect(() => {
     const fetchUser = async () => {
       try {
@@ -1075,14 +1198,12 @@ const Chatbox: React.FC = () => {
     fetchUser();
   }, [router]);
 
-  // Initialize theme
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme") === "dark";
     setIsDarkMode(savedTheme);
     document.documentElement.classList.toggle("dark", savedTheme);
   }, []);
 
-  // Define fetchConversations before socket useEffect
   const fetchConversations = useCallback(async () => {
     if (!userId) return;
     try {
@@ -1107,6 +1228,10 @@ const Chatbox: React.FC = () => {
                 conversationId: String(msg.conversationId),
                 isEdited: msg.isEdited || false,
                 isDeleted: msg.isDeleted || false,
+                fileUrl: msg.fileUrl || undefined,
+                fileType: msg.fileType || undefined,
+                fileSize: msg.fileSize || undefined,
+                fileName: msg.fileName || undefined,
               })),
               unread: conv.unread || 0,
             },
@@ -1124,7 +1249,6 @@ const Chatbox: React.FC = () => {
     }
   }, [userId, router]);
 
-  // Setup socket connection
   useEffect(() => {
     if (!userId || !role) return;
 
@@ -1139,7 +1263,6 @@ const Chatbox: React.FC = () => {
       randomizationFactor: 0.5,
       extraHeaders: {
         "x-user-id": userId,
-        Cookie: `userId=${userId}; userRole=USER`,
       },
       transports: ["websocket"],
     });
@@ -1170,6 +1293,10 @@ const Chatbox: React.FC = () => {
         conversationId: String(message.conversationId),
         isEdited: message.isEdited || false,
         isDeleted: message.isDeleted || false,
+        fileUrl: message.fileUrl || undefined,
+        fileType: message.fileType || undefined,
+        fileSize: message.fileSize || undefined,
+        fileName: message.fileName || undefined,
       };
       setConversations((prev) => {
         const exists = prev.find((conv) => conv.id === normalizedMessage.conversationId);
@@ -1217,6 +1344,10 @@ const Chatbox: React.FC = () => {
         conversationId: String(updatedMessage.conversationId),
         isEdited: true,
         isDeleted: updatedMessage.isDeleted || false,
+        fileUrl: updatedMessage.fileUrl || undefined,
+        fileType: updatedMessage.fileType || undefined,
+        fileSize: updatedMessage.fileSize || undefined,
+        fileName: updatedMessage.fileName || undefined,
       };
       setConversations((prev) =>
         prev.map((conv) =>
@@ -1288,6 +1419,10 @@ const Chatbox: React.FC = () => {
           conversationId: String(msg.conversationId),
           isEdited: msg.isEdited || false,
           isDeleted: msg.isDeleted || false,
+          fileUrl: msg.fileUrl || undefined,
+          fileType: msg.fileType || undefined,
+          fileSize: msg.fileSize || undefined,
+          fileName: msg.fileName || undefined,
         })),
         unread: updatedConversation.unread || 0,
       };
@@ -1317,7 +1452,6 @@ const Chatbox: React.FC = () => {
     };
   }, [userId, role, selectedConversation, router, fetchConversations]);
 
-  // Close menu on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -1331,7 +1465,6 @@ const Chatbox: React.FC = () => {
     };
   }, []);
 
-  // Focus edit input when editing
   useEffect(() => {
     if (editingMessageId) {
       editInputRef.current?.focus();
@@ -1344,12 +1477,10 @@ const Chatbox: React.FC = () => {
     }
   }, [userId, fetchConversations]);
 
-  // Scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
   }, [selectedConversation?.messages?.length]);
 
-  // Search admins
   useEffect(() => {
     if (!searchQuery.trim() || !userId) {
       setSearchResults([]);
@@ -1387,6 +1518,10 @@ const Chatbox: React.FC = () => {
         conversationId: String(msg.conversationId),
         isEdited: msg.isEdited || false,
         isDeleted: msg.isDeleted || false,
+        fileUrl: msg.fileUrl || undefined,
+        fileType: msg.fileType || undefined,
+        fileSize: msg.fileSize || undefined,
+        fileName: msg.fileName || undefined,
       }));
     } catch (error: unknown) {
       console.error("Failed to fetch messages:", error);
@@ -1461,12 +1596,10 @@ const Chatbox: React.FC = () => {
     }
   };
 
-  // Handle file upload
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !selectedConversation || !userId || !socketRef.current) return;
 
-    // Validate file type and size
     const allowedTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
     const maxSize = 5 * 1024 * 1024; // 5MB
     if (!allowedTypes.includes(file.type)) {
@@ -1478,83 +1611,86 @@ const Chatbox: React.FC = () => {
       return;
     }
 
-    setSelectedFile(file);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append(
+      "to",
+      selectedConversation.participant1.id === userId
+        ? selectedConversation.participant2.id
+        : selectedConversation.participant1.id
+    );
+    formData.append("conversationId", selectedConversation.id);
 
-    // Upload file
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await axios.post(`${BACKEND_URL}/messages/upload`, formData, {
+      const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
         headers: {
           "x-user-id": userId,
           "Content-Type": "multipart/form-data",
         },
         withCredentials: true,
       });
-      const { fileUrl } = response.data;
-
-      // Format message content based on file type
-      let content: string;
-      if (file.type.startsWith("image/")) {
-        content = `<img src="${fileUrl}" alt="${file.name}" class="max-w-[200px] rounded-lg" />`;
-      } else {
-        content = `<a href="${fileUrl}" target="_blank" class="text-blue-500 underline">${file.name}</a>`;
+      const { fileUrl, fileType, fileSize, fileName } = response.data.data || {};
+      if (!fileUrl) {
+        throw new Error("File upload response missing fileUrl");
       }
 
-      // Send as a message
-      if (selectedConversation && socketRef.current && userId) {
-        const recipientId =
-          selectedConversation.participant1.id === userId
-            ? selectedConversation.participant2.id
-            : selectedConversation.participant1.id;
-        const tempMessageId = `temp-${Date.now()}`;
-        const tempMessage: Message = {
-          id: tempMessageId,
-          content,
-          sender: {
-            id: userId,
-            fullName: localStorage.getItem("fullName") || "User",
-            email: localStorage.getItem("email") || "",
-            role: "USER",
-          },
-          createdAt: new Date().toISOString(),
-          conversationId: selectedConversation.id,
-          isEdited: false,
-          isDeleted: false,
-        };
+      const recipientId =
+        selectedConversation.participant1.id === userId
+          ? selectedConversation.participant2.id
+          : selectedConversation.participant1.id;
+      const tempMessageId = `temp-${Date.now()}`;
+      const tempMessage: Message = {
+        id: tempMessageId,
+        content: "File message",
+        sender: {
+          id: userId,
+          fullName: localStorage.getItem("fullName") || "User",
+          email: localStorage.getItem("email") || "",
+          role: "USER",
+        },
+        createdAt: new Date().toISOString(),
+        conversationId: selectedConversation.id,
+        isEdited: false,
+        isDeleted: false,
+        fileUrl,
+        fileType,
+        fileSize,
+        fileName,
+      };
 
-        socketRef.current.emit("private message", {
-          content,
-          to: recipientId,
-          from: userId,
-          conversationId: selectedConversation.id,
-        });
+      socketRef.current.emit("private message", {
+        content: "File message",
+        to: recipientId,
+        from: userId,
+        conversationId: selectedConversation.id,
+        fileUrl,
+        fileType,
+        fileSize,
+        fileName,
+      });
 
-        setSelectedConversation((prev) =>
-          prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev
-        );
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === selectedConversation.id
-              ? {
-                  ...conv,
-                  messages: [...conv.messages, tempMessage],
-                  updatedAt: new Date().toISOString(),
-                }
-              : conv
-          )
-        );
-        scrollToBottom();
-      }
+      setSelectedConversation((prev) =>
+        prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev
+      );
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === selectedConversation.id
+            ? {
+                ...conv,
+                messages: [...conv.messages, tempMessage],
+                updatedAt: new Date().toISOString(),
+              }
+            : conv
+        )
+      );
+      scrollToBottom();
 
-      setSelectedFile(null);
       if (fileInputRef.current) {
-        fileInputRef.current.value = ""; // Reset file input
+        fileInputRef.current.value = "";
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Failed to upload file:", error);
-      toast.error("Failed to upload file");
-      setSelectedFile(null);
+      toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file");
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -1951,14 +2087,37 @@ const Chatbox: React.FC = () => {
                     </div>
                   ) : (
                     <>
-                      <p
-                        dangerouslySetInnerHTML={{
-                          __html: DOMPurify.sanitize(msg.content, {
-                            ALLOWED_TAGS: ["img", "a", "p", "br"],
-                            ALLOWED_ATTR: ["src", "href", "alt", "class", "target"],
-                          }),
-                        }}
-                      />
+                      {msg.fileUrl ? (
+                        <div>
+                          <p>{msg.content}</p>
+                          {msg.fileType?.startsWith("image/") ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={`${BACKEND_URL}${msg.fileUrl}`}
+                              alt={msg.fileName || "Uploaded image"}
+                              className="max-w-[200px] rounded-lg"
+                            />
+                          ) : (
+                            <a
+                              href={`${BACKEND_URL}${msg.fileUrl}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-300 hover:underline"
+                            >
+                              {msg.fileName || "View File"}
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <p
+                          dangerouslySetInnerHTML={{
+                            __html: DOMPurify.sanitize(msg.content, {
+                              ALLOWED_TAGS: ["img", "a", "p", "br"],
+                              ALLOWED_ATTR: ["src", "href", "alt", "class", "target"],
+                            }),
+                          }}
+                        />
+                      )}
                       <p className="text-xs mt-1 opacity-75 flex justify-end">
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         {msg.isEdited && <span className="ml-2">Edited</span>}
