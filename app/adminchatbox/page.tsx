@@ -11,7 +11,7 @@
 //   faEdit,
 //   faTrash,
 //   faShare,
-//   faPaperclip, // Added for file attachment
+//   faPaperclip,
 // } from "@fortawesome/free-solid-svg-icons";
 // import "@fortawesome/fontawesome-svg-core/styles.css";
 // import { config } from "@fortawesome/fontawesome-svg-core";
@@ -39,6 +39,10 @@
 //   conversationId: string;
 //   isEdited: boolean;
 //   isForwarded: boolean;
+//   fileUrl?: string;
+//   fileType?: string;
+//   fileSize?: number;
+//   fileName?: string;
 // }
 
 // interface Conversation {
@@ -71,12 +75,11 @@
 //   const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
 //   const [forwardContent, setForwardContent] = useState("");
 //   const [admins, setAdmins] = useState<User[]>([]);
-//   const [, setSelectedFile] = useState<File | null>(null); // New state for file
 //   const socketRef = useRef<Socket | null>(null);
 //   const messagesEndRef = useRef<HTMLDivElement>(null);
 //   const menuRef = useRef<HTMLDivElement>(null);
 //   const editInputRef = useRef<HTMLInputElement>(null);
-//   const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
+//   const fileInputRef = useRef<HTMLInputElement>(null);
 //   const router = useRouter();
 
 //   // Fetch user data from /me endpoint
@@ -108,7 +111,7 @@
 //     fetchUser();
 //   }, [router]);
 
-//   // Define fetchConversations before socket useEffect
+//   // Define fetchConversations
 //   const fetchConversations = useCallback(async () => {
 //     if (!adminId) return;
 //     try {
@@ -133,6 +136,10 @@
 //                 conversationId: String(msg.conversationId),
 //                 isEdited: msg.isEdited || false,
 //                 isForwarded: msg.isForwarded || false,
+//                 fileUrl: msg.fileUrl || undefined,
+//                 fileType: msg.fileType || undefined,
+//                 fileSize: msg.fileSize || undefined,
+//                 fileName: msg.fileName || undefined,
 //               })),
 //               unread: conv.unread || 0,
 //             },
@@ -164,7 +171,6 @@
 //       randomizationFactor: 0.5,
 //       extraHeaders: {
 //         "x-user-id": adminId,
-//         Cookie: `userId=${adminId}; userRole=ADMIN`,
 //       },
 //       transports: ["websocket", "polling"],
 //     });
@@ -194,6 +200,10 @@
 //         conversationId: String(message.conversationId),
 //         isEdited: message.isEdited || false,
 //         isForwarded: message.isForwarded || false,
+//         fileUrl: message.fileUrl || undefined,
+//         fileType: message.fileType || undefined,
+//         fileSize: message.fileSize || undefined,
+//         fileName: message.fileName || undefined,
 //       };
 //       setConversations((prev) => {
 //         const exists = prev.find((conv) => conv.id === normalizedMessage.conversationId);
@@ -241,6 +251,10 @@
 //         conversationId: String(updatedMessage.conversationId),
 //         isEdited: true,
 //         isForwarded: updatedMessage.isForwarded || false,
+//         fileUrl: updatedMessage.fileUrl || undefined,
+//         fileType: updatedMessage.fileType || undefined,
+//         fileSize: updatedMessage.fileSize || undefined,
+//         fileName: updatedMessage.fileName || undefined,
 //       };
 //       setConversations((prev) =>
 //         prev.map((conv) =>
@@ -306,6 +320,10 @@
 //           conversationId: String(msg.conversationId),
 //           isEdited: msg.isEdited || false,
 //           isForwarded: msg.isForwarded || false,
+//           fileUrl: msg.fileUrl || undefined,
+//           fileType: msg.fileType || undefined,
+//           fileSize: msg.fileSize || undefined,
+//           fileName: msg.fileName || undefined,
 //         })),
 //         unread: updatedConversation.unread || 0,
 //       };
@@ -371,6 +389,10 @@
 //         conversationId: String(msg.conversationId),
 //         isEdited: msg.isEdited || false,
 //         isForwarded: msg.isForwarded || false,
+//         fileUrl: msg.fileUrl || undefined,
+//         fileType: msg.fileType || undefined,
+//         fileSize: msg.fileSize || undefined,
+//         fileName: msg.fileName || undefined,
 //       }));
 //     } catch (error: unknown) {
 //       console.error("Failed to fetch messages:", error);
@@ -455,9 +477,8 @@
 //   // Handle file upload
 //   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
 //     const file = e.target.files?.[0];
-//     if (!file) return;
+//     if (!file || !selectedConversation || !adminId || !socketRef.current) return;
 
-//     // Validate file type and size
 //     const allowedTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
 //     const maxSize = 5 * 1024 * 1024; // 5MB
 //     if (!allowedTypes.includes(file.type)) {
@@ -469,80 +490,85 @@
 //       return;
 //     }
 
-//     setSelectedFile(file);
+//     const formData = new FormData();
+//     formData.append("file", file);
+//     formData.append(
+//       "to",
+//       selectedConversation.participant1.id === adminId
+//         ? selectedConversation.participant2.id
+//         : selectedConversation.participant1.id
+//     );
+//     formData.append("conversationId", selectedConversation.id);
 
-//     // Upload file
 //     try {
-//       const formData = new FormData();
-//       formData.append("file", file);
-//       const response = await axios.post(`${BACKEND_URL}/messages/upload`, formData, {
+//       const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
 //         headers: {
 //           "x-user-id": adminId,
 //           "Content-Type": "multipart/form-data",
 //         },
 //         withCredentials: true,
 //       });
-//       const { fileUrl } = response.data;
-
-//       // Format message content based on file type
-//       let content: string;
-//       if (file.type.startsWith("image/")) {
-//         content = `<img src="${fileUrl}" alt="${file.name}" class="max-w-[200px] rounded-lg" />`;
-//       } else {
-//         content = `<a href="${fileUrl}" target="_blank" class="text-blue-500 underline">${file.name}</a>`;
+//       const { fileUrl, fileType, fileSize, fileName } = response.data.data || {};
+//       if (!fileUrl) {
+//         throw new Error("File upload response missing fileUrl");
 //       }
 
-//       // Send as a message
-//       if (selectedConversation && socketRef.current && adminId) {
-//         const tempId = `temp-${Date.now()}`;
-//         const optimisticMessage: Message = {
-//           id: tempId,
-//           content,
-//           sender: {
-//             id: adminId,
-//             fullName: localStorage.getItem("fullName") || "Admin",
-//             email: localStorage.getItem("email") || "",
-//             role: "ADMIN",
-//           },
-//           createdAt: new Date().toISOString(),
-//           conversationId: selectedConversation.id,
-//           isEdited: false,
-//           isForwarded: false,
-//         };
-//         socketRef.current.emit("private message", {
-//           content,
-//           to:
-//             selectedConversation.participant1.id === adminId
-//               ? selectedConversation.participant2.id
-//               : selectedConversation.participant1.id,
-//           from: adminId,
-//           conversationId: selectedConversation.id,
-//         });
-//         setSelectedConversation((prev) =>
-//           prev ? { ...prev, messages: [...prev.messages, optimisticMessage] } : prev
-//         );
-//         setConversations((prev) =>
-//           prev.map((conv) =>
-//             conv.id === selectedConversation.id
-//               ? {
-//                   ...conv,
-//                   messages: [...conv.messages, optimisticMessage],
-//                   updatedAt: new Date().toISOString(),
-//                 }
-//               : conv
-//           )
-//         );
-//         scrollToBottom();
-//       }
+//       const tempId = `temp-${Date.now()}`;
+//       const optimisticMessage: Message = {
+//         id: tempId,
+//         content: "File message",
+//         sender: {
+//           id: adminId,
+//           fullName: localStorage.getItem("fullName") || "Admin",
+//           email: localStorage.getItem("email") || "",
+//           role: "ADMIN",
+//         },
+//         createdAt: new Date().toISOString(),
+//         conversationId: selectedConversation.id,
+//         isEdited: false,
+//         isForwarded: false,
+//         fileUrl,
+//         fileType,
+//         fileSize,
+//         fileName,
+//       };
 
-//       setSelectedFile(null);
+//       socketRef.current.emit("private message", {
+//         content: "File message",
+//         to:
+//           selectedConversation.participant1.id === adminId
+//             ? selectedConversation.participant2.id
+//             : selectedConversation.participant1.id,
+//         from: adminId,
+//         conversationId: selectedConversation.id,
+//         fileUrl,
+//         fileType,
+//         fileSize,
+//         fileName,
+//       });
+
+//       setSelectedConversation((prev) =>
+//         prev ? { ...prev, messages: [...prev.messages, optimisticMessage] } : prev
+//       );
+//       setConversations((prev) =>
+//         prev.map((conv) =>
+//           conv.id === selectedConversation.id
+//             ? {
+//                 ...conv,
+//                 messages: [...conv.messages, optimisticMessage],
+//                 updatedAt: new Date().toISOString(),
+//               }
+//             : conv
+//         )
+//       );
+//       scrollToBottom();
+
 //       if (fileInputRef.current) {
-//         fileInputRef.current.value = ""; // Reset file input
+//         fileInputRef.current.value = "";
 //       }
-//     } catch (error) {
+//     } catch (error: unknown) {
 //       console.error("Failed to upload file:", error);
-//       toast.error("Failed to upload file");
-//       setSelectedFile(null);
+//       toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file");
 //       if (fileInputRef.current) {
 //         fileInputRef.current.value = "";
 //       }
@@ -871,14 +897,37 @@
 //                       </div>
 //                     ) : (
 //                       <>
-//                         <p
-//                           dangerouslySetInnerHTML={{
-//                             __html: DOMPurify.sanitize(msg.content, {
-//                               ALLOWED_TAGS: ["img", "a", "p", "br"],
-//                               ALLOWED_ATTR: ["src", "href", "alt", "class", "target"],
-//                             }),
-//                           }}
-//                         />
+//                         {msg.fileUrl ? (
+//                           <div>
+//                             <p>{msg.content}</p>
+//                             {msg.fileType?.startsWith("image/") ? (
+//                               // eslint-disable-next-line @next/next/no-img-element
+//                               <img
+//                                 src={`${BACKEND_URL}${msg.fileUrl}`}
+//                                 alt={msg.fileName || "Uploaded image"}
+//                                 className="max-w-[200px] rounded-lg"
+//                               />
+//                             ) : (
+//                               <a
+//                                 href={`${BACKEND_URL}${msg.fileUrl}`}
+//                                 target="_blank"
+//                                 rel="noopener noreferrer"
+//                                 className="text-blue-300 hover:underline"
+//                               >
+//                                 {msg.fileName || "View File"}
+//                               </a>
+//                             )}
+//                           </div>
+//                         ) : (
+//                           <p
+//                             dangerouslySetInnerHTML={{
+//                               __html: DOMPurify.sanitize(msg.content, {
+//                                 ALLOWED_TAGS: ["img", "a", "p", "br"],
+//                                 ALLOWED_ATTR: ["src", "href", "alt", "class", "target"],
+//                               }),
+//                             }}
+//                           />
+//                         )}
 //                         <p className="text-xs mt-1 opacity-70">
 //                           {new Date(msg.createdAt).toLocaleTimeString("en-US", {
 //                             hour: "2-digit",
@@ -1038,7 +1087,6 @@
 // export default AdminChatbox;
 
 
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -1158,7 +1206,6 @@ const AdminChatbox: React.FC = () => {
     try {
       const response = await axios.get<Conversation[]>(`${BACKEND_URL}/conversations`, {
         params: { userId: adminId, role: "ADMIN" },
-        headers: { "x-user-id": adminId },
         withCredentials: true,
       });
       const uniqueConversations = Array.from(
@@ -1210,9 +1257,6 @@ const AdminChatbox: React.FC = () => {
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       randomizationFactor: 0.5,
-      extraHeaders: {
-        "x-user-id": adminId,
-      },
       transports: ["websocket", "polling"],
     });
 
@@ -1420,7 +1464,6 @@ const AdminChatbox: React.FC = () => {
     try {
       const response = await axios.get<Message[]>(`${BACKEND_URL}/messages`, {
         params: { conversationId },
-        headers: { "x-user-id": adminId },
         withCredentials: true,
       });
       return response.data.map((msg) => ({
@@ -1447,7 +1490,6 @@ const AdminChatbox: React.FC = () => {
     try {
       const response = await axios.get<User[]>(`${BACKEND_URL}/users/admins`, {
         params: { excludeUserId: adminId },
-        headers: { "x-user-id": adminId },
         withCredentials: true,
       });
       setAdmins(response.data.map((user) => ({ ...user, id: String(user.id) })));
@@ -1466,7 +1508,6 @@ const AdminChatbox: React.FC = () => {
       try {
         const response = await axios.get<User[]>(`${BACKEND_URL}/search/users`, {
           params: { query: searchQuery, excludeUserId: adminId },
-          headers: { "x-user-id": adminId },
           withCredentials: true,
         });
         setSearchResults(response.data.map((user) => ({ ...user, id: String(user.id) })));
@@ -1485,7 +1526,7 @@ const AdminChatbox: React.FC = () => {
       const response = await axios.post<Conversation>(
         `${BACKEND_URL}/conversations`,
         { participant1Id: adminId, participant2Id: userId },
-        { headers: { "x-user-id": adminId }, withCredentials: true }
+        { withCredentials: true }
       );
       const newConv: Conversation = {
         ...response.data,
@@ -1544,7 +1585,6 @@ const AdminChatbox: React.FC = () => {
     try {
       const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
         headers: {
-          "x-user-id": adminId,
           "Content-Type": "multipart/form-data",
         },
         withCredentials: true,
@@ -1666,7 +1706,7 @@ const AdminChatbox: React.FC = () => {
       await axios.put(
         `${BACKEND_URL}/messages/${messageId}`,
         { content },
-        { headers: { "x-user-id": adminId }, withCredentials: true }
+        { withCredentials: true }
       );
       socketRef.current?.emit("message updated", {
         messageId,
@@ -1691,7 +1731,6 @@ const AdminChatbox: React.FC = () => {
     if (!adminId || !selectedConversation) return;
     try {
       await axios.delete(`${BACKEND_URL}/messages/${messageId}`, {
-        headers: { "x-user-id": adminId },
         withCredentials: true,
       });
       socketRef.current?.emit("message deleted", {
@@ -1728,7 +1767,7 @@ const AdminChatbox: React.FC = () => {
           recipientIds,
           content: forwardContent,
         },
-        { headers: { "x-user-id": adminId }, withCredentials: true }
+        { withCredentials: true }
       );
       toast.success("Message forwarded successfully");
       setForwardModalOpen(false);
@@ -1763,7 +1802,7 @@ const AdminChatbox: React.FC = () => {
       await axios.post(
         `${BACKEND_URL}/conversations/${conv.id}/read`,
         { userId: adminId },
-        { headers: { "x-user-id": adminId }, withCredentials: true }
+        { withCredentials: true }
       );
     } catch (error: unknown) {
       let errorMessage = "Failed to load conversation.";
@@ -1942,6 +1981,7 @@ const AdminChatbox: React.FC = () => {
                           <div>
                             <p>{msg.content}</p>
                             {msg.fileType?.startsWith("image/") ? (
+                              // eslint-disable-next-line @next/next/no-img-element
                               <img
                                 src={`${BACKEND_URL}${msg.fileUrl}`}
                                 alt={msg.fileName || "Uploaded image"}
