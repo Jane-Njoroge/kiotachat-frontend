@@ -117,7 +117,6 @@
 //     try {
 //       const response = await axios.get<Conversation[]>(`${BACKEND_URL}/conversations`, {
 //         params: { userId: adminId, role: "ADMIN" },
-//         headers: { "x-user-id": adminId },
 //         withCredentials: true,
 //       });
 //       const uniqueConversations = Array.from(
@@ -169,9 +168,6 @@
 //       reconnectionDelay: 1000,
 //       reconnectionDelayMax: 5000,
 //       randomizationFactor: 0.5,
-//       extraHeaders: {
-//         "x-user-id": adminId,
-//       },
 //       transports: ["websocket", "polling"],
 //     });
 
@@ -379,7 +375,6 @@
 //     try {
 //       const response = await axios.get<Message[]>(`${BACKEND_URL}/messages`, {
 //         params: { conversationId },
-//         headers: { "x-user-id": adminId },
 //         withCredentials: true,
 //       });
 //       return response.data.map((msg) => ({
@@ -406,7 +401,6 @@
 //     try {
 //       const response = await axios.get<User[]>(`${BACKEND_URL}/users/admins`, {
 //         params: { excludeUserId: adminId },
-//         headers: { "x-user-id": adminId },
 //         withCredentials: true,
 //       });
 //       setAdmins(response.data.map((user) => ({ ...user, id: String(user.id) })));
@@ -425,7 +419,6 @@
 //       try {
 //         const response = await axios.get<User[]>(`${BACKEND_URL}/search/users`, {
 //           params: { query: searchQuery, excludeUserId: adminId },
-//           headers: { "x-user-id": adminId },
 //           withCredentials: true,
 //         });
 //         setSearchResults(response.data.map((user) => ({ ...user, id: String(user.id) })));
@@ -444,7 +437,7 @@
 //       const response = await axios.post<Conversation>(
 //         `${BACKEND_URL}/conversations`,
 //         { participant1Id: adminId, participant2Id: userId },
-//         { headers: { "x-user-id": adminId }, withCredentials: true }
+//         { withCredentials: true }
 //       );
 //       const newConv: Conversation = {
 //         ...response.data,
@@ -503,7 +496,6 @@
 //     try {
 //       const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
 //         headers: {
-//           "x-user-id": adminId,
 //           "Content-Type": "multipart/form-data",
 //         },
 //         withCredentials: true,
@@ -625,7 +617,7 @@
 //       await axios.put(
 //         `${BACKEND_URL}/messages/${messageId}`,
 //         { content },
-//         { headers: { "x-user-id": adminId }, withCredentials: true }
+//         { withCredentials: true }
 //       );
 //       socketRef.current?.emit("message updated", {
 //         messageId,
@@ -650,7 +642,6 @@
 //     if (!adminId || !selectedConversation) return;
 //     try {
 //       await axios.delete(`${BACKEND_URL}/messages/${messageId}`, {
-//         headers: { "x-user-id": adminId },
 //         withCredentials: true,
 //       });
 //       socketRef.current?.emit("message deleted", {
@@ -687,7 +678,7 @@
 //           recipientIds,
 //           content: forwardContent,
 //         },
-//         { headers: { "x-user-id": adminId }, withCredentials: true }
+//         { withCredentials: true }
 //       );
 //       toast.success("Message forwarded successfully");
 //       setForwardModalOpen(false);
@@ -722,7 +713,7 @@
 //       await axios.post(
 //         `${BACKEND_URL}/conversations/${conv.id}/read`,
 //         { userId: adminId },
-//         { headers: { "x-user-id": adminId }, withCredentials: true }
+//         { withCredentials: true }
 //       );
 //     } catch (error: unknown) {
 //       let errorMessage = "Failed to load conversation.";
@@ -1087,6 +1078,7 @@
 // export default AdminChatbox;
 
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -1301,7 +1293,7 @@ const AdminChatbox: React.FC = () => {
             ? {
                 ...conv,
                 messages: [
-                  ...conv.messages.filter((m) => m.id !== normalizedMessage.id && !m.id.startsWith("temp-")),
+                  ...conv.messages.filter((m) => m.id !== normalizedMessage.id),
                   normalizedMessage,
                 ],
                 unread: selectedConversation?.id === conv.id ? 0 : (conv.unread || 0) + 1,
@@ -1316,7 +1308,7 @@ const AdminChatbox: React.FC = () => {
             ? {
                 ...prev,
                 messages: [
-                  ...prev.messages.filter((m) => m.id !== normalizedMessage.id && !m.id.startsWith("temp-")),
+                  ...prev.messages.filter((m) => m.id !== normalizedMessage.id),
                   normalizedMessage,
                 ],
                 unread: 0,
@@ -1557,104 +1549,100 @@ const AdminChatbox: React.FC = () => {
   };
 
   // Handle file upload
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedConversation || !adminId || !socketRef.current) return;
+  const handleFileChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      try {
+        const file = event.target.files?.[0];
+        if (!file) {
+          toast.error("No file selected");
+          return;
+        }
+        if (!selectedConversation || !adminId || !socketRef.current) {
+          toast.error("No conversation selected or user not authenticated");
+          return;
+        }
 
-    const allowedTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    if (!allowedTypes.includes(file.type)) {
-      toast.error("Only PNG, JPEG, GIF, or PDF files are allowed");
-      return;
-    }
-    if (file.size > maxSize) {
-      toast.error("File size must be less than 5MB");
-      return;
-    }
+        const validTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
+        const maxSize = 5 * 1024 * 1024; // 5MB
+        if (!validTypes.includes(file.type)) {
+          toast.error("Invalid file type. Please upload PNG, JPEG, GIF, or PDF.");
+          return;
+        }
+        if (file.size > maxSize) {
+          toast.error("File size exceeds 5MB limit.");
+          return;
+        }
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append(
-      "to",
-      selectedConversation.participant1.id === adminId
-        ? selectedConversation.participant2.id
-        : selectedConversation.participant1.id
-    );
-    formData.append("conversationId", selectedConversation.id);
-
-    try {
-      const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-        withCredentials: true,
-      });
-      const { fileUrl, fileType, fileSize, fileName } = response.data.data || {};
-      if (!fileUrl) {
-        throw new Error("File upload response missing fileUrl");
-      }
-
-      const tempId = `temp-${Date.now()}`;
-      const optimisticMessage: Message = {
-        id: tempId,
-        content: "File message",
-        sender: {
-          id: adminId,
-          fullName: localStorage.getItem("fullName") || "Admin",
-          email: localStorage.getItem("email") || "",
-          role: "ADMIN",
-        },
-        createdAt: new Date().toISOString(),
-        conversationId: selectedConversation.id,
-        isEdited: false,
-        isForwarded: false,
-        fileUrl,
-        fileType,
-        fileSize,
-        fileName,
-      };
-
-      socketRef.current.emit("private message", {
-        content: "File message",
-        to:
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append(
+          "to",
           selectedConversation.participant1.id === adminId
             ? selectedConversation.participant2.id
-            : selectedConversation.participant1.id,
-        from: adminId,
-        conversationId: selectedConversation.id,
-        fileUrl,
-        fileType,
-        fileSize,
-        fileName,
-      });
+            : selectedConversation.participant1.id
+        );
+        formData.append("conversationId", selectedConversation.id);
 
-      setSelectedConversation((prev) =>
-        prev ? { ...prev, messages: [...prev.messages, optimisticMessage] } : prev
-      );
-      setConversations((prev) =>
-        prev.map((conv) =>
-          conv.id === selectedConversation.id
-            ? {
-                ...conv,
-                messages: [...conv.messages, optimisticMessage],
-                updatedAt: new Date().toISOString(),
-              }
-            : conv
-        )
-      );
-      scrollToBottom();
+        console.log("Uploading file:", {
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          to:
+            selectedConversation.participant1.id === adminId
+              ? selectedConversation.participant2.id
+              : selectedConversation.participant1.id,
+          conversationId: selectedConversation.id,
+        });
 
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
+        const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+          withCredentials: true,
+        });
+
+        console.log("File upload response:", response.data);
+
+        const uploadedMessage: Message = response.data.data;
+        if (!uploadedMessage?.fileUrl) {
+          throw new Error("File upload response missing fileUrl");
+        }
+
+        socketRef.current.emit("private message", {
+          content: uploadedMessage.content || "File message",
+          to:
+            selectedConversation.participant1.id === adminId
+              ? selectedConversation.participant2.id
+              : selectedConversation.participant1.id,
+          from: adminId,
+          conversationId: selectedConversation.id,
+          fileUrl: uploadedMessage.fileUrl,
+          fileType: uploadedMessage.fileType,
+          fileSize: uploadedMessage.fileSize,
+          fileName: uploadedMessage.fileName,
+        });
+
+        toast.success("File uploaded successfully");
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        scrollToBottom();
+      } catch (error: unknown) {
+        console.error("File upload error:", {
+          message: axios.isAxiosError(error) ? error.message : String(error),
+          response: axios.isAxiosError(error) ? error.response?.data : undefined,
+          status: axios.isAxiosError(error) ? error.response?.status : undefined,
+        });
+        const errorMessage =
+          axios.isAxiosError(error)
+            ? error.response?.data?.message || "Failed to upload file. Please try again."
+            : "Failed to upload file. Please try again.";
+        toast.error(errorMessage);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
       }
-    } catch (error: unknown) {
-      console.error("Failed to upload file:", error);
-      toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }
-  };
+    },
+    [selectedConversation, adminId]
+  );
 
   const sendMessage = () => {
     if (!newMessage.trim() || !selectedConversation || !socketRef.current || !adminId) return;

@@ -120,7 +120,6 @@
 //     try {
 //       const response = await axios.get<Conversation[]>(`${BACKEND_URL}/conversations`, {
 //         params: { userId, role: "USER" },
-//         headers: { "x-user-id": userId },
 //         withCredentials: true,
 //       });
 //       const uniqueConversations = Array.from(
@@ -172,9 +171,6 @@
 //       reconnectionDelay: 1000,
 //       reconnectionDelayMax: 5000,
 //       randomizationFactor: 0.5,
-//       extraHeaders: {
-//         "x-user-id": userId,
-//       },
 //       transports: ["websocket"],
 //     });
 
@@ -401,7 +397,6 @@
 //       try {
 //         const response = await axios.get<User[]>(`${BACKEND_URL}/search/users`, {
 //           params: { query: searchQuery, excludeUserId: userId, role: "ADMIN" },
-//           headers: { "x-user-id": userId },
 //           withCredentials: true,
 //         });
 //         setSearchResults(response.data.map((user) => ({ ...user, id: String(user.id) })));
@@ -419,7 +414,6 @@
 //     try {
 //       const response = await axios.get<Message[]>(`${BACKEND_URL}/messages`, {
 //         params: { conversationId },
-//         headers: { "x-user-id": userId },
 //         withCredentials: true,
 //       });
 //       return response.data.map((msg) => ({
@@ -464,7 +458,7 @@
 //           await axios.post(
 //             `${BACKEND_URL}/conversations/${existingConversation.id}/read`,
 //             { userId },
-//             { headers: { "x-user-id": userId }, withCredentials: true }
+//             { withCredentials: true }
 //           );
 //         } catch (error: unknown) {
 //           console.error("Failed to mark conversation as read:", error);
@@ -476,7 +470,7 @@
 //       const response = await axios.post<Conversation>(
 //         `${BACKEND_URL}/conversations`,
 //         { participant1Id: userId, participant2Id: adminId },
-//         { headers: { "x-user-id": userId }, withCredentials: true }
+//         { withCredentials: true }
 //       );
 //       const newConv: Conversation = {
 //         ...response.data,
@@ -535,7 +529,6 @@
 //     try {
 //       const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
 //         headers: {
-//           "x-user-id": userId,
 //           "Content-Type": "multipart/form-data",
 //         },
 //         withCredentials: true,
@@ -670,7 +663,7 @@
 //       await axios.put(
 //         `${BACKEND_URL}/messages/${editingMessageId}`,
 //         { content: editedContent },
-//         { headers: { "x-user-id": userId }, withCredentials: true }
+//         { withCredentials: true }
 //       );
 //       socketRef.current?.emit("message updated", {
 //         messageId: editingMessageId,
@@ -696,7 +689,6 @@
 //     if (!userId || !selectedConversation) return;
 //     try {
 //       await axios.delete(`${BACKEND_URL}/messages/${messageId}`, {
-//         headers: { "x-user-id": userId },
 //         withCredentials: true,
 //       });
 //       socketRef.current?.emit("message deleted", {
@@ -747,7 +739,7 @@
 //       await axios.post(
 //         `${BACKEND_URL}/conversations/${convId}/read`,
 //         { userId },
-//         { headers: { "x-user-id": userId }, withCredentials: true }
+//         { withCredentials: true }
 //       );
 //     } catch (error: unknown) {
 //       let errorMessage = "Failed to load conversation.";
@@ -1122,6 +1114,7 @@
 // };
 
 // export default Chatbox;
+
 
 
 "use client";
@@ -1627,105 +1620,93 @@ const Chatbox: React.FC = () => {
     }
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedConversation || !userId || !socketRef.current) return;
+  const handleSendFile = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      try {
+        const file = event.target.files?.[0];
+        if (!file) {
+          toast.error("No file selected");
+          return;
+        }
+        if (!selectedConversation || !userId || !socketRef.current) {
+          toast.error("No conversation selected or user not authenticated");
+          return;
+        }
 
-    const allowedTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    if (!allowedTypes.includes(file.type)) {
-      toast.error("Only PNG, JPEG, GIF, or PDF files are allowed");
-      return;
-    }
-    if (file.size > maxSize) {
-      toast.error("File size must be less than 5MB");
-      return;
-    }
+        const validTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
+        const maxSize = 5 * 1024 * 1024; // 5MB
+        if (!validTypes.includes(file.type)) {
+          toast.error("Invalid file type. Please upload PNG, JPEG, GIF, or PDF.");
+          return;
+        }
+        if (file.size > maxSize) {
+          toast.error("File size exceeds 5MB limit.");
+          return;
+        }
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append(
-      "to",
-      selectedConversation.participant1.id === userId
-        ? selectedConversation.participant2.id
-        : selectedConversation.participant1.id
-    );
-    formData.append("conversationId", selectedConversation.id);
+        const formData = new FormData();
+        formData.append("file", file);
+        const recipientId =
+          selectedConversation.participant1.id === userId
+            ? selectedConversation.participant2.id
+            : selectedConversation.participant1.id;
+        formData.append("to", recipientId);
+        formData.append("conversationId", selectedConversation.id);
 
-    try {
-      const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-        withCredentials: true,
-      });
-      const { fileUrl, fileType, fileSize, fileName } = response.data.data || {};
-      if (!fileUrl) {
-        throw new Error("File upload response missing fileUrl");
+        console.log("Uploading file:", {
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          to: recipientId,
+          conversationId: selectedConversation.id,
+        });
+
+        const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+          withCredentials: true,
+        });
+
+        console.log("File upload response:", response.data);
+
+        const uploadedMessage: Message = response.data.data;
+        if (!uploadedMessage?.fileUrl) {
+          throw new Error("File upload response missing fileUrl");
+        }
+
+        socketRef.current.emit("private message", {
+          content: uploadedMessage.content || "File message",
+          to: recipientId,
+          from: userId,
+          conversationId: selectedConversation.id,
+          fileUrl: uploadedMessage.fileUrl,
+          fileType: uploadedMessage.fileType,
+          fileSize: uploadedMessage.fileSize,
+          fileName: uploadedMessage.fileName,
+        });
+
+        toast.success("File uploaded successfully");
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        scrollToBottom();
+      } catch (error: unknown) {
+        console.error("File upload error:", {
+          message: axios.isAxiosError(error) ? error.message : String(error),
+          response: axios.isAxiosError(error) ? error.response?.data : undefined,
+          status: axios.isAxiosError(error) ? error.response?.status : undefined,
+        });
+        const errorMessage =
+          axios.isAxiosError(error)
+            ? error.response?.data?.message || "Failed to upload file. Please try again."
+            : "Failed to upload file. Please try again.";
+        toast.error(errorMessage);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
       }
-
-      const recipientId =
-        selectedConversation.participant1.id === userId
-          ? selectedConversation.participant2.id
-          : selectedConversation.participant1.id;
-      const tempMessageId = `temp-${Date.now()}`;
-      const tempMessage: Message = {
-        id: tempMessageId,
-        content: "File message",
-        sender: {
-          id: userId,
-          fullName: localStorage.getItem("fullName") || "User",
-          email: localStorage.getItem("email") || "",
-          role: "USER",
-        },
-        createdAt: new Date().toISOString(),
-        conversationId: selectedConversation.id,
-        isEdited: false,
-        isDeleted: false,
-        fileUrl,
-        fileType,
-        fileSize,
-        fileName,
-      };
-
-      socketRef.current.emit("private message", {
-        content: "File message",
-        to: recipientId,
-        from: userId,
-        conversationId: selectedConversation.id,
-        fileUrl,
-        fileType,
-        fileSize,
-        fileName,
-      });
-
-      setSelectedConversation((prev) =>
-        prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev
-      );
-      setConversations((prev) =>
-        prev.map((conv) =>
-          conv.id === selectedConversation.id
-            ? {
-                ...conv,
-                messages: [...conv.messages, tempMessage],
-                updatedAt: new Date().toISOString(),
-              }
-            : conv
-        )
-      );
-      scrollToBottom();
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    } catch (error: unknown) {
-      console.error("Failed to upload file:", error);
-      toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }
-  };
+    },
+    [selectedConversation, userId]
+  );
 
   const sendMessage = () => {
     if (!message.trim() || !selectedConversation || !userId || !socketRef.current) return;
@@ -1824,7 +1805,7 @@ const Chatbox: React.FC = () => {
         to:
           selectedConversation.participant1.id === userId
             ? selectedConversation.participant2.id
-            : selectedConversation.participant1.id,
+            : selectedConversation.participant1.id
       });
       setMenuMessageId(null);
       toast.success("Message deleted");
@@ -1839,20 +1820,19 @@ const Chatbox: React.FC = () => {
     if (menuMessageId !== messageId) setEditingMessageId(null);
   };
 
-  const handleConversationSelect = async (conversation: Conversation) => {
-    if (!conversation?.id || !userId) {
-      toast.error("Invalid conversation selected.", { duration: 3000 });
+  const handleConversationSelect = async (conv: Conversation) => {
+    if (!conv?.id || !userId) {
+      toast.error("Invalid conversation ID format.", { duration: 3000 });
       return;
     }
-    const convId = String(conversation.id);
+    const convId: string = String(conv.id);
     if (!convId.match(/^\d+$/)) {
       toast.error("Invalid conversation ID format.", { duration: 3000 });
       return;
     }
     console.log("Selecting conversation:", { convId, type: typeof convId, userId });
     try {
-      const messages = await fetchMessages(convId);
-      const updatedConversation = { ...conversation, id: convId, messages, unread: 0 };
+      const updatedConversation = { ...conv, id: convId, unread: 0 };
       setSelectedConversation(updatedConversation);
       setConversations((prev) =>
         prev.map((conv) => (conv.id === convId ? { ...conv, unread: 0 } : conv))
@@ -1944,11 +1924,7 @@ const Chatbox: React.FC = () => {
               placeholder="Search admins..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-full px-4 py-2 mt-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
-                isDarkMode
-                  ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
-                  : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
-              }`}
+              className={`w-full px-4 py-2 mt-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${isDarkMode ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400" : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"}`}
             />
             {searchResults.length > 0 && (
               <div
@@ -1974,25 +1950,13 @@ const Chatbox: React.FC = () => {
             <div className="flex justify-between space-x-4 mt-4">
               <button
                 onClick={() => setTab("ALL")}
-                className={`flex-1 py-2 rounded-full text-sm font-semibold transition ${
-                  tab === "ALL"
-                    ? "bg-blue-500 text-white"
-                    : isDarkMode
-                    ? "bg-gray-700 text-white hover:bg-gray-600"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
+                className={`flex-1 py-2 rounded-full text-sm font-semibold transition ${tab === "ALL" ? "bg-blue-500 text-white" : isDarkMode ? "bg-gray-700 text-white hover:bg-gray-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
               >
                 All
               </button>
               <button
                 onClick={() => setTab("UNREAD")}
-                className={`flex-1 py-2 rounded-full text-sm font-semibold transition ${
-                  tab === "UNREAD"
-                    ? "bg-blue-500 text-white"
-                    : isDarkMode
-                    ? "bg-gray-700 text-white hover:bg-gray-600"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
+                className={`flex-1 py-2 rounded-full text-sm font-semibold transition ${tab === "UNREAD" ? "bg-blue-500 text-white" : isDarkMode ? "bg-gray-700 text-white hover:bg-gray-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
               >
                 Unread
               </button>
@@ -2068,15 +2032,7 @@ const Chatbox: React.FC = () => {
                 className={`flex ${msg.sender?.id === userId ? "justify-end" : "justify-start"} group relative`}
               >
                 <div
-                  className={`relative p-3 rounded-lg max-w-[70%] text-sm transition-colors ${
-                    isDarkMode
-                      ? msg.sender.id === userId
-                        ? "bg-blue-500 text-white hover:bg-blue-600"
-                        : "bg-gray-700 text-white hover:bg-gray-600"
-                      : msg.sender.id === userId
-                      ? "bg-blue-500 text-white hover:bg-blue-600"
-                      : "bg-white text-gray-800 hover:bg-gray-200 shadow-sm"
-                  }`}
+                  className={`relative p-3 rounded-lg max-w-[70%] text-sm transition-colors ${isDarkMode ? msg.sender.id === userId ? "bg-blue-500 text-white hover:bg-blue-600" : "bg-gray-700 text-white hover:bg-gray-600" : msg.sender.id === userId ? "bg-blue-500 text-white hover:bg-blue-600" : "bg-white text-gray-800 hover:bg-gray-200 shadow-sm"}`}
                 >
                   {editingMessageId === msg.id ? (
                     <div className="flex flex-col">
@@ -2206,7 +2162,7 @@ const Chatbox: React.FC = () => {
               <input
                 type="file"
                 ref={fileInputRef}
-                onChange={handleFileChange}
+                onChange={handleSendFile}
                 accept="image/png,image/jpeg,image/gif,application/pdf"
                 className="hidden"
               />
