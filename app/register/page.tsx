@@ -27,7 +27,7 @@ const Register = () => {
     email: "",
     phoneNumber: "",
     password: "",
-    confirmPassword: "",
+    confirmPassword: "", 
   });
   const [errors, setErrors] = useState({
     fullName: "",
@@ -104,7 +104,7 @@ const Register = () => {
         },
         {
           withCredentials: true,
-          timeout: 60000,
+          timeout: 5000,
           headers: { "Content-Type": "application/json" },
         }
       );

@@ -39,7 +39,7 @@ const OTPContent: React.FC = () => {
         { email, otp },
         {
           withCredentials: true,
-          timeout: 60000,
+          timeout: 5000,
           headers: {
             "Content-Type": "application/json",
             "Accept": "application/json",
