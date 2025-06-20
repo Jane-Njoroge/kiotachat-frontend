@@ -818,7 +818,7 @@ const Chatbox: React.FC = () => {
               placeholder="Search admins..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-full px-4 py-2 mt-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
+              className={`w-full px-4 py-2 mt-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
                 isDarkMode
                   ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
                   : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
@@ -850,7 +850,7 @@ const Chatbox: React.FC = () => {
                 onClick={() => setTab("ALL")}
                 className={`flex-1 py-2 rounded-full text-sm font-semibold transition ${
                   tab === "ALL"
-                    ? "bg-blue-500 text-white"
+                    ? "focus:ring-[#005555] text-white"
                     : isDarkMode
                     ? "bg-gray-700 text-white hover:bg-gray-600"
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -862,7 +862,7 @@ const Chatbox: React.FC = () => {
                 onClick={() => setTab("UNREAD")}
                 className={`flex-1 py-2 rounded-full text-sm font-semibold transition ${
                   tab === "UNREAD"
-                    ? "bg-blue-500 text-white"
+                    ? "focus:ring-[#005555] text-white"
                     : isDarkMode
                     ? "bg-gray-700 text-white hover:bg-gray-600"
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -886,12 +886,12 @@ const Chatbox: React.FC = () => {
                 >
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
+                      <div className="w-10 h-10 rounded-full focus:ring-[#005555] flex items-center justify-center text-white font-semibold">
                         {getPartnerName(conv)[0]?.toUpperCase() || "?"}
                       </div>
                       <div>
                         <h3
-                          className={`text-sm font-semibold ${conv.unread > 0 ? "text-blue-500 dark:text-blue-400" : "text-gray-900 dark:text-white"}`}
+                          className={`text-sm font-semibold ${conv.unread > 0 ? "focus:ring-[#005555] dark:text-blue-400" : "text-gray-900 dark:text-white"}`}
                         >
                           {getPartnerName(conv)}
                         </h3>
@@ -901,7 +901,7 @@ const Chatbox: React.FC = () => {
                       </div>
                     </div>
                     {conv.unread > 0 && (
-                      <span className="bg-blue-500 text-white text-xs font-semibold px-2 py-1 rounded-full">
+                      <span className="focus:ring-[#005555] text-white text-xs font-semibold px-2 py-1 rounded-full">
                         {conv.unread}
                       </span>
                     )}
@@ -925,7 +925,7 @@ const Chatbox: React.FC = () => {
                 <FontAwesomeIcon icon={faArrowLeft} className="text-lg" />
               </button>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
+                <div className="w-10 h-10 rounded-full focus:ring-[#005555] flex items-center justify-center text-white font-semibold">
                   {getPartnerName(selectedConversation)?.[0]?.toUpperCase() || ""}
                 </div>
                 <span className="text-lg font-semibold">{getPartnerName(selectedConversation)}</span>

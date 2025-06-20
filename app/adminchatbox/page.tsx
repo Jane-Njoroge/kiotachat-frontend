@@ -770,7 +770,7 @@ const AdminChatbox: React.FC = () => {
           placeholder="Search users..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className={`w-full p-3 mb-4 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
+          className={`w-full p-3 mb-4 border rounded-full focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
             isDarkMode
               ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
               : "bg-gray-50 text-gray-800 border-gray-300 placeholder-gray-500"
@@ -783,7 +783,7 @@ const AdminChatbox: React.FC = () => {
               className="p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer rounded-lg transition flex items-center space-x-3"
               onClick={() => createConversation(result.id)}
             >
-              <div className="w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center text-white font-semibold">
+              <div className="w-10 h-10 rounded-full focus:ring-[#005555] flex items-center justify-center text-white font-semibold">
                 {result.fullName[0]?.toUpperCase() || "?"}
               </div>
               <span>{result.fullName}</span>
@@ -802,7 +802,7 @@ const AdminChatbox: React.FC = () => {
               }`}
               onClick={() => selectConversation(conv)}
             >
-              <div className="w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center text-white font-semibold">
+              <div className="w-10 h-10 rounded-full focus:ring-[#005555] flex items-center justify-center text-white font-semibold">
                 {getPartnerName(conv)[0]?.toUpperCase() || "?"}
               </div>
               <div className="flex-1">
@@ -830,7 +830,7 @@ const AdminChatbox: React.FC = () => {
                 isDarkMode ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white"
               } shadow-sm flex items-center space-x-3`}
             >
-              <div className="w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center text-white font-semibold">
+              <div className="w-10 h-10 rounded-full focus:ring-[#005555] flex items-center justify-center text-white font-semibold">
                 {getPartnerName(selectedConversation)[0]?.toUpperCase() || "?"}
               </div>
               <h2 className="text-xl font-semibold">{getPartnerName(selectedConversation)}</h2>

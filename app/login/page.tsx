@@ -55,7 +55,8 @@ const Login = () => {
         { email, password },
         {
           withCredentials: true,
-          timeout: 60000,
+          //increase timeout due to cold start(render free tier)
+          timeout: 90000,  
           headers: { "Content-Type": "application/json" },
         }
       );
