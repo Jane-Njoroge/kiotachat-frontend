@@ -1083,7 +1083,6 @@
 // export default AdminChatbox;
 
 
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -1105,6 +1104,7 @@ import io, { Socket } from "socket.io-client";
 import axios, { AxiosError } from "axios";
 import { Toaster, toast } from "react-hot-toast";
 import DOMPurify from "dompurify";
+import Image from "next/image";
 
 config.autoAddCss = false;
 
@@ -1142,9 +1142,6 @@ interface Conversation {
   updatedAt: string;
 }
 
-interface SocketError {
-  message?: string;
-}
 
 const AdminChatbox: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -1154,7 +1151,12 @@ const AdminChatbox: React.FC = () => {
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [adminId, setAdminId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("theme") === "light" ? false : true);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("theme") !== "light";
+    }
+    return true;
+  });
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editedContent, setEditedContent] = useState("");
   const [menuMessageId, setMenuMessageId] = useState<string | null>(null);
@@ -1170,9 +1172,11 @@ const AdminChatbox: React.FC = () => {
   const router = useRouter();
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem("theme") === "light";
-    setIsDarkMode(!savedTheme);
-    document.documentElement.classList.toggle("dark", !savedTheme);
+    if (typeof window !== "undefined") {
+      const savedTheme = localStorage.getItem("theme") === "light";
+      setIsDarkMode(!savedTheme);
+      document.documentElement.classList.toggle("dark", !savedTheme);
+    }
   }, []);
 
   useEffect(() => {
@@ -1191,7 +1195,9 @@ const AdminChatbox: React.FC = () => {
 
         setAdminId(userId);
         setRole(role);
-        localStorage.setItem("fullName", fullName);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("fullName", fullName);
+        }
       } catch (error) {
         console.error("Failed to fetch user:", error);
         toast.error("Authentication failed");
@@ -1234,9 +1240,9 @@ const AdminChatbox: React.FC = () => {
             },
           ])
         ).values()
-      ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      ).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       setConversations(uniqueConversations);
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to fetch conversations:", error);
       toast.error("Failed to fetch conversations. Please try again.");
       if (axios.isAxiosError(error) && error.response?.status === 401) {
@@ -1267,12 +1273,12 @@ const AdminChatbox: React.FC = () => {
       socket.emit("register", { userId: parseInt(adminId, 10), role: "ADMIN" });
     });
 
-    socket.on("connect_error", (err: Error) => {
+    socket.on("connect_error", (err) => {
       console.error("Socket connect error:", { message: err.message, stack: err.stack, cause: err.cause });
       toast.error("Failed to connect to server");
     });
 
-    socket.on("private message", (message: Message) => {
+    socket.on("private message", (message) => {
       console.log("Received private message:", message);
       const normalizedMessage: Message = {
         ...message,
@@ -1334,7 +1340,7 @@ const AdminChatbox: React.FC = () => {
       }
     });
 
-    socket.on("message updated", (updatedMessage: Message) => {
+    socket.on("message updated", (updatedMessage) => {
       console.log("Received message updated:", updatedMessage);
       const normalizedMessage: Message = {
         ...updatedMessage,
@@ -1375,7 +1381,7 @@ const AdminChatbox: React.FC = () => {
       }
     });
 
-    socket.on("message deleted", (deletedMessage: { id: string; conversationId: string; isDeleted: boolean }) => {
+    socket.on("message deleted", (deletedMessage) => {
       console.log("Received message deleted:", deletedMessage);
       setConversations((prev) =>
         prev.map((conv) =>
@@ -1399,14 +1405,14 @@ const AdminChatbox: React.FC = () => {
       }
     });
 
-    socket.on("conversation updated", (updatedConversation: Conversation) => {
+    socket.on("conversation updated", (updatedConversation) => {
       console.log("Received conversation updated:", updatedConversation);
       const normalizedConversation: Conversation = {
         ...updatedConversation,
         id: String(updatedConversation.id),
         participant1: { ...updatedConversation.participant1, id: String(updatedConversation.participant1.id) },
         participant2: { ...updatedConversation.participant2, id: String(updatedConversation.participant2.id) },
-        messages: updatedConversation.messages.map((msg) => ({
+        messages: updatedConversation.messages.map((msg: { id: unknown; sender: { id: unknown; }; conversationId: unknown; isEdited: unknown; isForwarded: unknown; fileUrl: unknown; fileType: unknown; fileSize: unknown; fileName: unknown; tempId: unknown; }) => ({
           ...msg,
           id: String(msg.id),
           sender: { ...msg.sender, id: String(msg.sender.id) },
@@ -1433,7 +1439,7 @@ const AdminChatbox: React.FC = () => {
       }
     });
 
-    socket.on("error", (error: SocketError) => {
+    socket.on("error", (error) => {
       console.error("Socket error:", error);
       toast.error(error.message || "Socket error");
       if (error.message?.includes("Invalid userId") || error.message?.includes("validation failed")) {
@@ -1466,13 +1472,13 @@ const AdminChatbox: React.FC = () => {
 
   useEffect(() => {
     fetchConversations();
-  }, [adminId, fetchConversations]);
+  }, [fetchConversations, adminId]);
 
-  const fetchMessages = async (conversationId: string): Promise<Message[]> => {
+  const fetchMessages = useCallback(async (conversationId: string): Promise<Message[]> => {
     if (!adminId) return [];
     try {
       const response = await axios.get<Message[]>(`${BACKEND_URL}/messages`, {
-        params: { conversationId },
+        params: { conversationId, userId: adminId },
         withCredentials: true,
       });
       return response.data.map((msg) => ({
@@ -1488,12 +1494,12 @@ const AdminChatbox: React.FC = () => {
         fileName: msg.fileName || undefined,
         tempId: msg.tempId || undefined,
       }));
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to fetch messages:", error);
       toast.error("Failed to fetch messages");
       return [];
     }
-  };
+  }, [adminId]);
 
   const fetchAdmins = async () => {
     if (!adminId) return;
@@ -1503,7 +1509,7 @@ const AdminChatbox: React.FC = () => {
         withCredentials: true,
       });
       setAdmins(response.data.map((user) => ({ ...user, id: String(user.id) })));
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to fetch admins:", error);
       toast.error("Failed to fetch admins");
     }
@@ -1521,7 +1527,7 @@ const AdminChatbox: React.FC = () => {
           withCredentials: true,
         });
         setSearchResults(response.data.map((user) => ({ ...user, id: String(user.id) })));
-      } catch (error: unknown) {
+      } catch (error) {
         console.error("Search failed:", error);
         toast.error("Search failed");
       }
@@ -1560,7 +1566,7 @@ const AdminChatbox: React.FC = () => {
       setSearchQuery("");
       setSearchResults([]);
       scrollToBottom();
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to create conversation:", error);
       toast.error("Failed to create conversation");
     }
@@ -1571,7 +1577,7 @@ const AdminChatbox: React.FC = () => {
     if (!file || !selectedConversation || !adminId || !socketRef.current) return;
 
     const allowedTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
-    const maxSize = 5 * 1024 * 1024; // 5MB
+    const maxSize = 5 * 1024 * 1024;
     if (!allowedTypes.includes(file.type)) {
       toast.error("Only PNG, JPEG, GIF, or PDF files are allowed");
       return;
@@ -1581,7 +1587,7 @@ const AdminChatbox: React.FC = () => {
       return;
     }
 
-    const tempId = `temp-${Date.now()}-${Math.random()}`; // Generate unique tempId
+    const tempId = `temp-${Date.now()}-${Math.random()}`;
     const tempMessage: Message = {
       id: tempId,
       tempId,
@@ -1596,13 +1602,12 @@ const AdminChatbox: React.FC = () => {
       conversationId: selectedConversation.id,
       isEdited: false,
       isForwarded: false,
-      fileUrl: URL.createObjectURL(file), // Temporary local URL for optimistic rendering
+      fileUrl: URL.createObjectURL(file),
       fileType: file.type,
       fileSize: file.size,
       fileName: file.name,
     };
 
-    // Add temporary message to UI
     setSelectedConversation((prev) =>
       prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev
     );
@@ -1624,7 +1629,7 @@ const AdminChatbox: React.FC = () => {
         : selectedConversation.participant1.id
     );
     formData.append("conversationId", selectedConversation.id);
-    formData.append("tempId", tempId); // Include tempId in payload
+    formData.append("tempId", tempId);
 
     try {
       const timeoutId = setTimeout(() => {
@@ -1641,7 +1646,7 @@ const AdminChatbox: React.FC = () => {
           )
         );
         toast.error("File upload timed out");
-      }, 10000); // 10-second timeout
+      }, 10000);
 
       const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -1649,7 +1654,7 @@ const AdminChatbox: React.FC = () => {
         timeout: 90000,
       });
 
-      clearTimeout(timeoutId); // Clear timeout on success
+      clearTimeout(timeoutId);
 
       const { fileUrl, messageId } = response.data.data || {};
       if (!fileUrl || !messageId) {
@@ -1657,7 +1662,7 @@ const AdminChatbox: React.FC = () => {
       }
 
       if (fileInputRef.current) fileInputRef.current.value = "";
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to upload file:", error);
       toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file");
       setSelectedConversation((prev) =>
@@ -1678,7 +1683,7 @@ const AdminChatbox: React.FC = () => {
 
   const sendMessage = () => {
     if (!newMessage.trim() || !selectedConversation || !socketRef.current || !adminId) return;
-    const tempId = `temp-${Date.now()}-${Math.random()}`; // Generate unique tempId
+    const tempId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticMessage: Message = {
       id: tempId,
       tempId,
@@ -1702,7 +1707,7 @@ const AdminChatbox: React.FC = () => {
           : selectedConversation.participant1.id,
       from: adminId,
       conversationId: selectedConversation.id,
-      tempId, // Include tempId in socket emission
+      tempId,
     });
     setSelectedConversation((prev) =>
       prev ? { ...prev, messages: [...prev.messages, optimisticMessage], unread: 0 } : prev
@@ -1827,7 +1832,7 @@ const AdminChatbox: React.FC = () => {
         { userId: adminId },
         { withCredentials: true }
       );
-    } catch (error: unknown) {
+    } catch (error) {
       let errorMessage = "Failed to load conversation.";
       if (error instanceof AxiosError) {
         errorMessage = error.response?.data?.message || errorMessage;
@@ -1854,7 +1859,9 @@ const AdminChatbox: React.FC = () => {
   const toggleDarkMode = () => {
     setIsDarkMode((prev) => {
       const newMode = !prev;
-      localStorage.setItem("theme", newMode ? "dark" : "light");
+      if (typeof window !== "undefined") {
+        localStorage.setItem("theme", newMode ? "dark" : "light");
+      }
       document.documentElement.classList.toggle("dark", newMode);
       return newMode;
     });
@@ -1969,7 +1976,7 @@ const AdminChatbox: React.FC = () => {
                         ? "bg-[#005555] text-white"
                         : isDarkMode
                         ? "bg-gray-700 text-white"
-                        : "bg-white text-black shadow-md" // Changed to text-black for better contrast
+                        : "bg-white text-black shadow-md"
                     } ${msg.sender.id === adminId ? "hover:bg-[#007575]" : "hover:bg-gray-200 dark:hover:bg-gray-600"}`}
                   >
                     {editingMessageId === msg.id ? (
@@ -1987,7 +1994,7 @@ const AdminChatbox: React.FC = () => {
                           className={`w-full p-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] ${
                             isDarkMode
                               ? "bg-gray-800 text-white border-gray-600"
-                              : "bg-white text-black border-gray-300" // Ensured text is black in light mode
+                              : "bg-white text-black border-gray-300"
                           }`}
                         />
                         <div className="mt-2 flex justify-end space-x-2">
@@ -2017,11 +2024,12 @@ const AdminChatbox: React.FC = () => {
                           <div>
                             {msg.content !== "File message" && <p className="text-sm">{msg.content}</p>}
                             {msg.fileType?.startsWith("image/") ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
+                              <Image
                                 src={msg.fileUrl}
                                 alt={msg.fileName || "Uploaded image"}
-                                className="max-w-[200px] rounded-lg"
+                                width={200}
+                                height={200}
+                                className="rounded-lg"
                                 onError={() => toast.error(`Failed to load image: ${msg.fileName || "Unknown"}`)}
                               />
                             ) : (
@@ -2049,7 +2057,7 @@ const AdminChatbox: React.FC = () => {
                                 ALLOWED_ATTR: ["src", "href", "alt", "class", "target"],
                               }),
                             }}
-                            className="text-sm" // Added class for consistent text color
+                            className="text-sm"
                           />
                         )}
                         <p className="text-xs mt-1 opacity-70">
@@ -2134,7 +2142,7 @@ const AdminChatbox: React.FC = () => {
                 className={`flex-1 mx-3 p-3 rounded-full border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
                   isDarkMode
                     ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
-                    : "bg-white text-black border-gray-300 placeholder-gray-400" // Changed bg-gray-50 to bg-white and ensured text-black
+                    : "bg-white text-black border-gray-300 placeholder-gray-400"
                 }`}
                 onKeyPress={(e) => e.key === "Enter" && sendMessage()}
               />
