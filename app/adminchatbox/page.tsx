@@ -1083,6 +1083,7 @@
 // export default AdminChatbox;
 
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -1141,7 +1142,6 @@ interface Conversation {
   createdAt: string;
   updatedAt: string;
 }
-
 
 const AdminChatbox: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -2024,14 +2024,25 @@ const AdminChatbox: React.FC = () => {
                           <div>
                             {msg.content !== "File message" && <p className="text-sm">{msg.content}</p>}
                             {msg.fileType?.startsWith("image/") ? (
-                              <Image
-                                src={msg.fileUrl}
-                                alt={msg.fileName || "Uploaded image"}
-                                width={200}
-                                height={200}
-                                className="rounded-lg"
-                                onError={() => toast.error(`Failed to load image: ${msg.fileName || "Unknown"}`)}
-                              />
+                              <div>
+                                <Image
+                                  src={msg.fileUrl}
+                                  alt={msg.fileName || "Uploaded image"}
+                                  width={200}
+                                  height={200}
+                                  className="rounded-lg"
+                                  onError={() => {
+                                    toast.error(`Image optimization failed for ${msg.fileName || "Unknown"}`);
+                                    return (
+                                      <img
+                                        src={msg.fileUrl}
+                                        alt={msg.fileName || "Uploaded image"}
+                                        style={{ width: 200, height: 200, borderRadius: "8px" }}
+                                      />
+                                    );
+                                  }}
+                                />
+                              </div>
                             ) : (
                               <a
                                 href={msg.fileUrl}

@@ -1138,6 +1138,7 @@
 // export default Chatbox;
 
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -1196,7 +1197,6 @@ interface Conversation {
   createdAt: string;
   updatedAt: string;
 }
-
 
 const Chatbox: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -1996,7 +1996,7 @@ const Chatbox: React.FC = () => {
 
   return (
     <div
-      className={`flex flex-col h-screen ${isDarkMode ? "bg-gradient-to-b from-gray-800 to-gray-900" : "bg-gray-50"} text-gray-900 dark:text-gray-100 transition-colors duration-300`}
+      className={`flex flex-col h-screen ${isDarkMode ? "bg-gradient-to-b from-gray-800 to-gray-900" : "bg-gray-50"} ${isDarkMode ? "text-gray-100" : "text-black"} transition-colors duration-300`}
     >
       <Toaster position="top-center" toastOptions={{ duration: 3000 }} />
       {!showChatMessages ? (
@@ -2005,7 +2005,7 @@ const Chatbox: React.FC = () => {
             className={`p-4 border-b ${isDarkMode ? "border-gray-600 bg-gray-800" : "border-gray-200 bg-white"} shadow-sm`}
           >
             <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-semibold">Chats</h2>
+              <h2 className={`text-2xl font-semibold ${isDarkMode ? "text-gray-100" : "text-black"}`}>Chats</h2>
               <button
                 onClick={toggleDarkMode}
                 aria-label="Toggle theme"
@@ -2022,7 +2022,7 @@ const Chatbox: React.FC = () => {
               className={`w-full px-4 py-2 mt-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
                 isDarkMode
                   ? "bg-gray-700 text-gray-100 border-gray-600 placeholder-gray-400"
-                  : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
+                  : "bg-white text-black border-gray-200 placeholder-gray-500"
               }`}
             />
             {searchResults.length > 0 && (
@@ -2038,13 +2038,13 @@ const Chatbox: React.FC = () => {
                     <div className="w-8 h-8 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold">
                       {user.fullName[0]?.toUpperCase() || "?"}
                     </div>
-                    <span className="ml-2 font-medium">{user.fullName}</span>
+                    <span className={`ml-2 font-medium ${isDarkMode ? "text-gray-100" : "text-black"}`}>{user.fullName}</span>
                   </div>
                 ))}
               </div>
             )}
             {searchQuery && searchResults.length === 0 && (
-              <div className="mt-2 text-gray-500 dark:text-gray-400 text-center">No admins found</div>
+              <div className={`mt-2 ${isDarkMode ? "text-gray-400" : "text-black"} text-center`}>No admins found</div>
             )}
             <div className="flex justify-between space-x-4 mt-4">
               <button
@@ -2054,7 +2054,7 @@ const Chatbox: React.FC = () => {
                     ? "bg-[#005555] text-white"
                     : isDarkMode
                     ? "bg-gray-700 text-gray-100 hover:bg-gray-600"
-                    : "bg-gray-100 text-gray-900 hover:bg-gray-200"
+                    : "bg-gray-100 text-black hover:bg-gray-200"
                 }`}
               >
                 All
@@ -2066,7 +2066,7 @@ const Chatbox: React.FC = () => {
                     ? "bg-[#005555] text-white"
                     : isDarkMode
                     ? "bg-gray-700 text-gray-100 hover:bg-gray-600"
-                    : "bg-gray-100 text-gray-900 hover:bg-gray-200"
+                    : "bg-gray-100 text-black hover:bg-gray-200"
                 }`}
               >
                 Unread
@@ -2075,7 +2075,7 @@ const Chatbox: React.FC = () => {
           </div>
           <div className="flex-1 overflow-y-auto">
             {filteredConversations.length === 0 && !searchQuery ? (
-              <div className="flex items-center justify-center h-full text-gray-600 dark:text-gray-400">
+              <div className={`flex items-center justify-center h-full ${isDarkMode ? "text-gray-400" : "text-black"}`}>
                 <p>{tab === "ALL" ? "No chats yet" : "No unread messages"}</p>
               </div>
             ) : (
@@ -2092,11 +2092,11 @@ const Chatbox: React.FC = () => {
                       </div>
                       <div>
                         <h3
-                          className={`text-sm font-semibold ${conv.unread > 0 ? "text-[#005555] dark:text-[#00A3A3]" : "text-gray-900 dark:text-gray-100"}`}
+                          className={`text-sm font-semibold ${conv.unread > 0 ? "text-[#005555] dark:text-[#00A3A3]" : isDarkMode ? "text-gray-100" : "text-black"}`}
                         >
                           {getPartnerName(conv)}
                         </h3>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 truncate max-w-[200px]">
+                        <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-black"} truncate max-w-[200px]`}>
                           {conv.messages[conv.messages.length - 1]?.content || "No messages yet"}
                         </p>
                       </div>
@@ -2129,7 +2129,7 @@ const Chatbox: React.FC = () => {
                 <div className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold">
                   {getPartnerName(selectedConversation)?.[0]?.toUpperCase() || ""}
                 </div>
-                <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">{getPartnerName(selectedConversation)}</span>
+                <span className={`text-lg font-semibold ${isDarkMode ? "text-gray-100" : "text-black"}`}>{getPartnerName(selectedConversation)}</span>
               </div>
             </div>
           </div>
@@ -2150,7 +2150,7 @@ const Chatbox: React.FC = () => {
                         : "bg-gray-700 text-gray-100 hover:bg-gray-600"
                       : msg.sender.id === userId
                       ? "bg-[#005555] text-white hover:bg-[#004444]"
-                      : "bg-white text-gray-900 hover:bg-gray-50 shadow-sm"
+                      : "bg-white text-black hover:bg-gray-50 shadow-sm"
                   }`}
                 >
                   {editingMessageId === msg.id ? (
@@ -2163,7 +2163,7 @@ const Chatbox: React.FC = () => {
                         className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] ${
                           isDarkMode
                             ? "bg-gray-700 text-gray-100 border-gray-600"
-                            : "bg-white text-gray-900 border-gray-200"
+                            : "bg-white text-black border-gray-200"
                         }`}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
@@ -2199,17 +2199,28 @@ const Chatbox: React.FC = () => {
                         <div>
                           {msg.content !== "File message" && <p className="text-sm">{msg.content}</p>}
                           {msg.fileType?.startsWith("image/") ? (
-                            <Image
-                              src={`${BACKEND_URL}${msg.fileUrl}`}
-                              alt={msg.fileName || "Uploaded image"}
-                              width={200}
-                              height={200}
-                              className="max-w-[200px] rounded-lg mt-1"
-                              onError={() => toast.error("Failed to load image", { duration: 3000 })}
-                            />
+                            <div>
+                              <Image
+                                src={msg.fileUrl}
+                                alt={msg.fileName || "Uploaded image"}
+                                width={200}
+                                height={200}
+                                className="max-w-[200px] rounded-lg mt-1"
+                                onError={() => {
+                                  toast.error("Image optimization failed", { duration: 3000 });
+                                  return (
+                                    <img
+                                      src={msg.fileUrl}
+                                      alt={msg.fileName || "Uploaded image"}
+                                      style={{ maxWidth: "200px", borderRadius: "8px" }}
+                                    />
+                                  );
+                                }}
+                              />
+                            </div>
                           ) : (
                             <a
-                              href={`${BACKEND_URL}${msg.fileUrl}`}
+                              href={msg.fileUrl}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-blue-300 hover:underline text-sm"
@@ -2255,7 +2266,7 @@ const Chatbox: React.FC = () => {
                           setEditedContent(msg.content);
                           setMenuMessageId(null);
                         }}
-                        className={`w-full px-4 py-2 text-sm flex items-center ${isDarkMode ? "text-gray-200 hover:bg-gray-700" : "text-gray-900 hover:bg-gray-100"} transition-colors`}
+                        className={`w-full px-4 py-2 text-sm flex items-center ${isDarkMode ? "text-gray-200 hover:bg-gray-700" : "text-black hover:bg-gray-100"} transition-colors`}
                       >
                         <FontAwesomeIcon icon={faEdit} className="mr-2 w-4 h-4" />
                         Edit
@@ -2301,7 +2312,7 @@ const Chatbox: React.FC = () => {
                 className={`flex-1 px-4 py-2 rounded-full border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
                   isDarkMode
                     ? "bg-gray-700 text-gray-100 border-gray-600 placeholder-gray-400"
-                    : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
+                    : "bg-white text-black border-gray-200 placeholder-gray-500"
                 }`}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
