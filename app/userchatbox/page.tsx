@@ -22,7 +22,7 @@
 
 // config.autoAddCss = false;
 
-// const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5002";
+// const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://kiotachat-backend-1.onrender.com";
 
 // interface User {
 //   id: string;
@@ -65,7 +65,7 @@
 //   const [message, setMessage] = useState("");
 //   const [userId, setUserId] = useState<string | null>(null);
 //   const [role, setRole] = useState<string | null>(null);
-//   const [isDarkMode, setIsDarkMode] = useState(true);
+//   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("theme") === "light" ? false : true);
 //   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 //   const [editedContent, setEditedContent] = useState("");
 //   const [showChatMessages, setShowChatMessages] = useState(false);
@@ -86,13 +86,14 @@
 //       try {
 //         const response = await axios.get(`${BACKEND_URL}/me`, {
 //           withCredentials: true,
+//           timeout: 10000,
 //         });
 //         const { userId, role, fullName } = response.data;
 //         console.log("Fetched user:", { userId, role, fullName });
 
 //         if (role !== "USER") {
 //           console.error("Role mismatch, redirecting to login");
-//           toast.error("Unauthorized access");
+//           toast.error("Unauthorized access", { duration: 3000 });
 //           router.push("/login");
 //           return;
 //         }
@@ -102,7 +103,7 @@
 //         localStorage.setItem("fullName", fullName);
 //       } catch (error: unknown) {
 //         console.error("Error fetching user:", error);
-//         toast.error("Authentication failed");
+//         toast.error("Authentication failed. Please try again.", { duration: 3000 });
 //         router.push("/login");
 //       }
 //     };
@@ -110,9 +111,9 @@
 //   }, [router]);
 
 //   useEffect(() => {
-//     const savedTheme = localStorage.getItem("theme") === "dark";
-//     setIsDarkMode(savedTheme);
-//     document.documentElement.classList.toggle("dark", savedTheme);
+//     const savedTheme = localStorage.getItem("theme") === "light";
+//     setIsDarkMode(!savedTheme);
+//     document.documentElement.classList.toggle("dark", !savedTheme);
 //   }, []);
 
 //   const fetchConversations = useCallback(async () => {
@@ -121,6 +122,7 @@
 //       const response = await axios.get<Conversation[]>(`${BACKEND_URL}/conversations`, {
 //         params: { userId, role: "USER" },
 //         withCredentials: true,
+//         timeout: 10000,
 //       });
 //       const uniqueConversations = Array.from(
 //         new Map(
@@ -151,9 +153,9 @@
 //       setConversations(uniqueConversations);
 //     } catch (error: unknown) {
 //       console.error("Failed to fetch conversations:", error);
-//       toast.error("Failed to fetch conversations. Please try again.");
+//       toast.error("Failed to load chats. Please try again.", { duration: 3000 });
 //       if (axios.isAxiosError(error) && error.response?.status === 401) {
-//         toast.error("Session expired. Please log in.");
+//         toast.error("Session expired. Please log in.", { duration: 4000 });
 //         router.push("/login");
 //       }
 //     }
@@ -185,10 +187,9 @@
 //       console.error("Socket connect error:", {
 //         message: err.message,
 //         stack: err.stack,
-//         cause: err.cause,
 //         userId,
 //       });
-//       toast.error("Failed to connect to server");
+//       toast.error("Failed to connect to server", { duration: 3000 });
 //     });
 
 //     socket.on("private message", (message: Message) => {
@@ -215,10 +216,7 @@
 //           conv.id === normalizedMessage.conversationId
 //             ? {
 //                 ...conv,
-//                 messages: [
-//                   ...conv.messages.filter((m) => m.id !== normalizedMessage.id && !m.id.startsWith("temp-")),
-//                   normalizedMessage,
-//                 ],
+//                 messages: conv.messages.map((m) => m.id === normalizedMessage.id ? normalizedMessage : m),
 //                 unread: selectedConversation?.id === conv.id ? 0 : (conv.unread || 0) + 1,
 //                 updatedAt: new Date().toISOString(),
 //               }
@@ -230,10 +228,7 @@
 //           prev
 //             ? {
 //                 ...prev,
-//                 messages: [
-//                   ...prev.messages.filter((m) => m.id !== normalizedMessage.id && !m.id.startsWith("temp-")),
-//                   normalizedMessage,
-//                 ],
+//                 messages: prev.messages.map((m) => m.id === normalizedMessage.id ? normalizedMessage : m),
 //                 unread: 0,
 //               }
 //             : prev
@@ -348,7 +343,7 @@
 
 //     socket.on("error", (error: SocketError) => {
 //       console.error("Socket error:", error);
-//       toast.error(error.message || "Socket error occurred");
+//       toast.error(error.message || "Connection error", { duration: 3000 });
 //       if (error.message?.includes("Invalid userId") || error.message?.includes("validation failed")) {
 //         router.push("/login");
 //       }
@@ -398,11 +393,12 @@
 //         const response = await axios.get<User[]>(`${BACKEND_URL}/search/users`, {
 //           params: { query: searchQuery, excludeUserId: userId, role: "ADMIN" },
 //           withCredentials: true,
+//           timeout: 10000,
 //         });
 //         setSearchResults(response.data.map((user) => ({ ...user, id: String(user.id) })));
 //       } catch (error: unknown) {
 //         console.error("Search failed:", error);
-//         toast.error("Failed to search admins");
+//         toast.error("Failed to find admins", { duration: 3000 });
 //       }
 //     };
 //     const timeout = setTimeout(search, 300);
@@ -415,6 +411,7 @@
 //       const response = await axios.get<Message[]>(`${BACKEND_URL}/messages`, {
 //         params: { conversationId },
 //         withCredentials: true,
+//         timeout: 10000,
 //       });
 //       return response.data.map((msg) => ({
 //         ...msg,
@@ -430,7 +427,7 @@
 //       }));
 //     } catch (error: unknown) {
 //       console.error("Failed to fetch messages:", error);
-//       toast.error("Failed to fetch messages");
+//       toast.error("Failed to load messages", { duration: 3000 });
 //       return [];
 //     }
 //   };
@@ -462,7 +459,7 @@
 //           );
 //         } catch (error: unknown) {
 //           console.error("Failed to mark conversation as read:", error);
-//           toast.error("Failed to mark conversation as read");
+//           toast.error("Failed to mark as read", { duration: 3000 });
 //         }
 //         return;
 //       }
@@ -470,7 +467,7 @@
 //       const response = await axios.post<Conversation>(
 //         `${BACKEND_URL}/conversations`,
 //         { participant1Id: userId, participant2Id: adminId },
-//         { withCredentials: true }
+//         { withCredentials: true, timeout: 10000 }
 //       );
 //       const newConv: Conversation = {
 //         ...response.data,
@@ -496,8 +493,8 @@
 //       setSearchResults([]);
 //       scrollToBottom();
 //     } catch (error: unknown) {
-//       console.error("Failed to create or select conversation:", error);
-//       toast.error("Failed to start conversation");
+//       console.error("Failed to start conversation:", error);
+//       toast.error("Failed to start chat", { duration: 3000 });
 //     }
 //   };
 
@@ -508,11 +505,11 @@
 //     const allowedTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
 //     const maxSize = 5 * 1024 * 1024; // 5MB
 //     if (!allowedTypes.includes(file.type)) {
-//       toast.error("Only PNG, JPEG, GIF, or PDF files are allowed");
+//       toast.error("Only PNG, JPEG, GIF, or PDF files allowed", { duration: 3000 });
 //       return;
 //     }
 //     if (file.size > maxSize) {
-//       toast.error("File size must be less than 5MB");
+//       toast.error("File size must be less than 5MB", { duration: 3000 });
 //       return;
 //     }
 
@@ -528,23 +525,17 @@
 
 //     try {
 //       const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
-//         headers: {
-//           "Content-Type": "multipart/form-data",
-//         },
+//         headers: { "Content-Type": "multipart/form-data" },
 //         withCredentials: true,
+//         timeout: 15000,
 //       });
-//       const { fileUrl, fileType, fileSize, fileName } = response.data.data || {};
-//       if (!fileUrl) {
-//         throw new Error("File upload response missing fileUrl");
+//       const { fileUrl, fileType, fileSize, fileName, messageId } = response.data.data || {};
+//       if (!fileUrl || !messageId) {
+//         throw new Error("File upload response missing fileUrl or messageId");
 //       }
 
-//       const recipientId =
-//         selectedConversation.participant1.id === userId
-//           ? selectedConversation.participant2.id
-//           : selectedConversation.participant1.id;
-//       const tempMessageId = `temp-${Date.now()}`;
-//       const tempMessage: Message = {
-//         id: tempMessageId,
+//       const newMessage: Message = {
+//         id: messageId,
 //         content: "File message",
 //         sender: {
 //           id: userId,
@@ -562,6 +553,10 @@
 //         fileName,
 //       };
 
+//       const recipientId =
+//         selectedConversation.participant1.id === userId
+//           ? selectedConversation.participant2.id
+//           : selectedConversation.participant1.id;
 //       socketRef.current.emit("private message", {
 //         content: "File message",
 //         to: recipientId,
@@ -574,16 +569,12 @@
 //       });
 
 //       setSelectedConversation((prev) =>
-//         prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev
+//         prev ? { ...prev, messages: [...prev.messages, newMessage] } : prev
 //       );
 //       setConversations((prev) =>
 //         prev.map((conv) =>
 //           conv.id === selectedConversation.id
-//             ? {
-//                 ...conv,
-//                 messages: [...conv.messages, tempMessage],
-//                 updatedAt: new Date().toISOString(),
-//               }
+//             ? { ...conv, messages: [...conv.messages, newMessage], updatedAt: new Date().toISOString() }
 //             : conv
 //         )
 //       );
@@ -594,7 +585,10 @@
 //       }
 //     } catch (error: unknown) {
 //       console.error("Failed to upload file:", error);
-//       toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file");
+//       toast.error(
+//         axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file",
+//         { duration: 3000 }
+//       );
 //       if (fileInputRef.current) {
 //         fileInputRef.current.value = "";
 //       }
@@ -663,7 +657,7 @@
 //       await axios.put(
 //         `${BACKEND_URL}/messages/${editingMessageId}`,
 //         { content: editedContent },
-//         { withCredentials: true }
+//         { withCredentials: true, timeout: 10000 }
 //       );
 //       socketRef.current?.emit("message updated", {
 //         messageId: editingMessageId,
@@ -678,10 +672,10 @@
 //       setEditingMessageId(null);
 //       setEditedContent("");
 //       setMenuMessageId(null);
-//       toast.success("Message updated");
+//       toast.success("Message updated", { duration: 3000 });
 //     } catch (error: unknown) {
 //       console.error("Failed to edit message:", error);
-//       toast.error("Failed to edit message");
+//       toast.error("Failed to edit message", { duration: 3000 });
 //     }
 //   };
 
@@ -690,6 +684,7 @@
 //     try {
 //       await axios.delete(`${BACKEND_URL}/messages/${messageId}`, {
 //         withCredentials: true,
+//         timeout: 10000,
 //       });
 //       socketRef.current?.emit("message deleted", {
 //         messageId,
@@ -701,10 +696,10 @@
 //             : selectedConversation.participant1.id,
 //       });
 //       setMenuMessageId(null);
-//       toast.success("Message deleted");
+//       toast.success("Message deleted", { duration: 3000 });
 //     } catch (error: unknown) {
 //       console.error("Failed to delete message:", error);
-//       toast.error("Failed to delete message");
+//       toast.error("Failed to delete message", { duration: 3000 });
 //     }
 //   };
 
@@ -715,12 +710,12 @@
 
 //   const handleConversationSelect = async (conversation: Conversation) => {
 //     if (!conversation?.id || !userId) {
-//       toast.error("Invalid conversation selected.", { duration: 3000 });
+//       toast.error("Invalid conversation selected", { duration: 3000 });
 //       return;
 //     }
 //     const convId = String(conversation.id);
 //     if (!convId.match(/^\d+$/)) {
-//       toast.error("Invalid conversation ID format.", { duration: 3000 });
+//       toast.error("Invalid conversation ID format", { duration: 3000 });
 //       return;
 //     }
 //     console.log("Selecting conversation:", { convId, type: typeof convId, userId });
@@ -739,14 +734,14 @@
 //       await axios.post(
 //         `${BACKEND_URL}/conversations/${convId}/read`,
 //         { userId },
-//         { withCredentials: true }
+//         { withCredentials: true, timeout: 10000 }
 //       );
 //     } catch (error: unknown) {
-//       let errorMessage = "Failed to load conversation.";
+//       let errorMessage = "Failed to load conversation";
 //       if (error instanceof AxiosError) {
 //         errorMessage = error.response?.data?.message || errorMessage;
 //         if (error.response?.status === 401) {
-//           toast.error("Session expired. Please log in.", { duration: 4000 });
+//           toast.error("Session expired. Please log in", { duration: 4000 });
 //           setTimeout(() => router.push("/login"), 2000);
 //           return;
 //         }
@@ -778,10 +773,12 @@
 //   };
 
 //   const toggleDarkMode = () => {
-//     const newDarkMode = !isDarkMode;
-//     setIsDarkMode(newDarkMode);
-//     localStorage.setItem("theme", newDarkMode ? "dark" : "light");
-//     document.documentElement.classList.toggle("dark", newDarkMode);
+//     setIsDarkMode((prev) => {
+//       const newMode = !prev;
+//       localStorage.setItem("theme", newMode ? "dark" : "light");
+//       document.documentElement.classList.toggle("dark", newMode);
+//       return newMode;
+//     });
 //   };
 
 //   const getPartnerName = (conv: Conversation | null): string => {
@@ -791,13 +788,28 @@
 
 //   const filteredConversations = tab === "ALL" ? conversations : conversations.filter((conv) => conv.unread > 0);
 
+//   useEffect(() => {
+//     let timer: NodeJS.Timeout;
+//     if (selectedConversation?.id) {
+//       timer = setTimeout(() => {
+//         fetchMessages(selectedConversation.id).then((messages) => {
+//           setSelectedConversation((prev) =>
+//             prev ? { ...prev, messages } : prev
+//           );
+//           scrollToBottom();
+//         });
+//       }, 5000); // Refresh every 5 seconds
+//     }
+//     return () => clearTimeout(timer);
+//   }, [selectedConversation?.id]);
+
 //   if (!userId) return null;
 
 //   return (
 //     <div
 //       className={`flex flex-col h-screen ${isDarkMode ? "bg-gradient-to-b from-gray-800 to-gray-900" : "bg-gray-50"} text-gray-900 dark:text-gray-100 transition-colors duration-300`}
 //     >
-//       <Toaster />
+//       <Toaster position="top-center" toastOptions={{ duration: 3000 }} />
 //       {!showChatMessages ? (
 //         <div className="flex-1 flex flex-col">
 //           <div
@@ -808,9 +820,9 @@
 //               <button
 //                 onClick={toggleDarkMode}
 //                 aria-label="Toggle theme"
-//                 className={`p-2 rounded-full ${isDarkMode ? "hover:bg-gray-600" : "hover:bg-gray-200"} transition`}
+//                 className={`p-2 rounded-full ${isDarkMode ? "bg-gray-700 hover:bg-gray-600" : "bg-gray-100 hover:bg-gray-200"} transition`}
 //               >
-//                 <FontAwesomeIcon icon={isDarkMode ? faSun : faMoon} />
+//                 <FontAwesomeIcon icon={isDarkMode ? faSun : faMoon} className="w-5 h-5" />
 //               </button>
 //             </div>
 //             <input
@@ -818,9 +830,9 @@
 //               placeholder="Search admins..."
 //               value={searchQuery}
 //               onChange={(e) => setSearchQuery(e.target.value)}
-//               className={`w-full px-4 py-2 mt-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
+//               className={`w-full px-4 py-2 mt-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
 //                 isDarkMode
-//                   ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
+//                   ? "bg-gray-700 text-gray-100 border-gray-600 placeholder-gray-400"
 //                   : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
 //               }`}
 //             />
@@ -834,26 +846,26 @@
 //                     className={`flex items-center px-3 py-2 ${isDarkMode ? "hover:bg-gray-700" : "hover:bg-gray-100"} cursor-pointer rounded-lg transition`}
 //                     onClick={() => selectOrCreateConversation(user.id)}
 //                   >
-//                     <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
+//                     <div className="w-8 h-8 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold">
 //                       {user.fullName[0]?.toUpperCase() || "?"}
 //                     </div>
-//                     <span className="ml-2">{user.fullName}</span>
+//                     <span className="ml-2 font-medium">{user.fullName}</span>
 //                   </div>
 //                 ))}
 //               </div>
 //             )}
 //             {searchQuery && searchResults.length === 0 && (
-//               <div className="mt-2 text-gray-500 dark:text-gray-400 text-center">No admins found.</div>
+//               <div className="mt-2 text-gray-500 dark:text-gray-400 text-center">No admins found</div>
 //             )}
 //             <div className="flex justify-between space-x-4 mt-4">
 //               <button
 //                 onClick={() => setTab("ALL")}
 //                 className={`flex-1 py-2 rounded-full text-sm font-semibold transition ${
 //                   tab === "ALL"
-//                     ? "bg-blue-500 text-white"
+//                     ? "bg-[#005555] text-white"
 //                     : isDarkMode
-//                     ? "bg-gray-700 text-white hover:bg-gray-600"
-//                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+//                     ? "bg-gray-700 text-gray-100 hover:bg-gray-600"
+//                     : "bg-gray-100 text-gray-900 hover:bg-gray-200"
 //                 }`}
 //               >
 //                 All
@@ -862,10 +874,10 @@
 //                 onClick={() => setTab("UNREAD")}
 //                 className={`flex-1 py-2 rounded-full text-sm font-semibold transition ${
 //                   tab === "UNREAD"
-//                     ? "bg-blue-500 text-white"
+//                     ? "bg-[#005555] text-white"
 //                     : isDarkMode
-//                     ? "bg-gray-700 text-white hover:bg-gray-600"
-//                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+//                     ? "bg-gray-700 text-gray-100 hover:bg-gray-600"
+//                     : "bg-gray-100 text-gray-900 hover:bg-gray-200"
 //                 }`}
 //               >
 //                 Unread
@@ -886,22 +898,22 @@
 //                 >
 //                   <div className="flex justify-between items-center">
 //                     <div className="flex items-center gap-3">
-//                       <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
+//                       <div className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold">
 //                         {getPartnerName(conv)[0]?.toUpperCase() || "?"}
 //                       </div>
 //                       <div>
 //                         <h3
-//                           className={`text-sm font-semibold ${conv.unread > 0 ? "text-blue-500 dark:text-blue-400" : "text-gray-900 dark:text-white"}`}
+//                           className={`text-sm font-semibold ${conv.unread > 0 ? "text-[#005555] dark:text-[#00A3A3]" : "text-gray-900 dark:text-gray-100"}`}
 //                         >
 //                           {getPartnerName(conv)}
 //                         </h3>
-//                         <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[200px]">
+//                         <p className="text-sm text-gray-600 dark:text-gray-400 truncate max-w-[200px]">
 //                           {conv.messages[conv.messages.length - 1]?.content || "No messages yet"}
 //                         </p>
 //                       </div>
 //                     </div>
 //                     {conv.unread > 0 && (
-//                       <span className="bg-blue-500 text-white text-xs font-semibold px-2 py-1 rounded-full">
+//                       <span className="bg-[#005555] text-white text-xs font-semibold px-2 py-1 rounded-full">
 //                         {conv.unread}
 //                       </span>
 //                     )}
@@ -914,27 +926,27 @@
 //       ) : (
 //         <div className="flex flex-col h-screen">
 //           <div
-//             className={`px-4 py-3 border-b sticky top-0 z-10 ${isDarkMode ? "bg-gray-800 border-gray-600" : "bg-white border-gray-200"}`}
+//             className={`px-4 py-3 border-b sticky top-0 z-10 ${isDarkMode ? "bg-gray-800 border-gray-600" : "bg-white border-gray-200"} shadow-sm`}
 //           >
 //             <div className="flex items-center gap-2">
 //               <button
 //                 onClick={handleBackToConversations}
-//                 className="p-2 rounded-full hover:bg-gray-600 dark:hover:bg-gray-200 transition-colors"
+//                 className={`p-2 rounded-full ${isDarkMode ? "hover:bg-gray-600" : "hover:bg-gray-200"} transition-colors`}
 //                 aria-label="Back to conversations"
 //               >
-//                 <FontAwesomeIcon icon={faArrowLeft} className="text-lg" />
+//                 <FontAwesomeIcon icon={faArrowLeft} className="w-5 h-5 text-gray-900 dark:text-gray-100" />
 //               </button>
 //               <div className="flex items-center gap-3">
-//                 <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
+//                 <div className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold">
 //                   {getPartnerName(selectedConversation)?.[0]?.toUpperCase() || ""}
 //                 </div>
-//                 <span className="text-lg font-semibold">{getPartnerName(selectedConversation)}</span>
+//                 <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">{getPartnerName(selectedConversation)}</span>
 //               </div>
 //             </div>
 //           </div>
 
 //           <div
-//             className={`flex-1 p-4 overflow-y-auto ${isDarkMode ? "bg-gray-900" : "bg-gray-100"} space-y-2`}
+//             className={`flex-1 p-4 overflow-y-auto ${isDarkMode ? "bg-gray-900" : "bg-gray-100"} space-y-3`}
 //           >
 //             {selectedConversation?.messages?.map((msg) => (
 //               <div
@@ -945,11 +957,11 @@
 //                   className={`relative p-3 rounded-lg max-w-[70%] text-sm transition-colors ${
 //                     isDarkMode
 //                       ? msg.sender.id === userId
-//                         ? "bg-blue-500 text-white hover:bg-blue-600"
-//                         : "bg-gray-700 text-white hover:bg-gray-600"
+//                         ? "bg-[#005555] text-white hover:bg-[#004444]"
+//                         : "bg-gray-700 text-gray-100 hover:bg-gray-600"
 //                       : msg.sender.id === userId
-//                       ? "bg-blue-500 text-white hover:bg-blue-600"
-//                       : "bg-white text-gray-800 hover:bg-gray-200 shadow-sm"
+//                       ? "bg-[#005555] text-white hover:bg-[#004444]"
+//                       : "bg-white text-gray-900 hover:bg-gray-50 shadow-sm"
 //                   }`}
 //                 >
 //                   {editingMessageId === msg.id ? (
@@ -959,8 +971,12 @@
 //                         type="text"
 //                         value={editedContent}
 //                         onChange={(e) => setEditedContent(e.target.value)}
-//                         className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-blue-500 bg-${isDarkMode ? "gray-700 text-white" : "white text-gray-900"} border-${isDarkMode ? "gray-600" : "gray-200"}`}
-//                         onKeyPress={(e) => {
+//                         className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] ${
+//                           isDarkMode
+//                             ? "bg-gray-700 text-gray-100 border-gray-600"
+//                             : "bg-white text-gray-900 border-gray-200"
+//                         }`}
+//                         onKeyDown={(e) => {
 //                           if (e.key === "Enter" && !e.shiftKey) {
 //                             e.preventDefault();
 //                             editMessage();
@@ -992,20 +1008,20 @@
 //                     <>
 //                       {msg.fileUrl ? (
 //                         <div>
-//                           <p>{msg.content}</p>
+//                           <p className="text-sm">{msg.content}</p>
 //                           {msg.fileType?.startsWith("image/") ? (
-//                             // eslint-disable-next-line @next/next/no-img-element
 //                             <img
 //                               src={`${BACKEND_URL}${msg.fileUrl}`}
 //                               alt={msg.fileName || "Uploaded image"}
-//                               className="max-w-[200px] rounded-lg"
+//                               className="max-w-[200px] rounded-lg mt-1"
+//                               onError={() => toast.error("Failed to load image", { duration: 3000 })}
 //                             />
 //                           ) : (
 //                             <a
 //                               href={`${BACKEND_URL}${msg.fileUrl}`}
 //                               target="_blank"
 //                               rel="noopener noreferrer"
-//                               className="text-blue-300 hover:underline"
+//                               className="text-blue-300 hover:underline text-sm"
 //                             >
 //                               {msg.fileName || "View File"}
 //                             </a>
@@ -1019,6 +1035,7 @@
 //                               ALLOWED_ATTR: ["src", "href", "alt", "class", "target"],
 //                             }),
 //                           }}
+//                           className="text-sm"
 //                         />
 //                       )}
 //                       <p className="text-xs mt-1 opacity-75 flex justify-end">
@@ -1039,7 +1056,7 @@
 //                   {msg.sender.id === userId && menuMessageId === msg.id && !editingMessageId && (
 //                     <div
 //                       ref={menuRef}
-//                       className={`absolute top-full right-0 mt-2 w-32 bg-white dark:bg-gray-800 rounded-lg shadow-lg border ${isDarkMode ? "border-gray-600" : "border-gray-200"} z-10`}
+//                       className={`absolute top-10 right-0 mt-2 w-32 bg-white dark:bg-gray-800 rounded-lg shadow-lg border ${isDarkMode ? "border-gray-600" : "border-gray-200"} z-10`}
 //                     >
 //                       <button
 //                         onClick={() => {
@@ -1047,7 +1064,7 @@
 //                           setEditedContent(msg.content);
 //                           setMenuMessageId(null);
 //                         }}
-//                         className={`w-full px-4 py-2 text-sm flex items-center ${isDarkMode ? "text-gray-200 hover:bg-gray-700" : "text-gray-700 hover:bg-gray-100"} transition-colors`}
+//                         className={`w-full px-4 py-2 text-sm flex items-center ${isDarkMode ? "text-gray-200 hover:bg-gray-700" : "text-gray-900 hover:bg-gray-100"} transition-colors`}
 //                       >
 //                         <FontAwesomeIcon icon={faEdit} className="mr-2 w-4 h-4" />
 //                         Edit
@@ -1067,15 +1084,15 @@
 //             <div ref={messagesEndRef} />
 //           </div>
 //           <div
-//             className={`sticky bottom-0 p-4 border-t ${isDarkMode ? "bg-gray-800 border-gray-600" : "bg-white border-gray-200"}`}
+//             className={`sticky bottom-0 p-4 border-t ${isDarkMode ? "bg-gray-800 border-gray-600" : "bg-white border-gray-200"} shadow-sm`}
 //           >
 //             <div className="flex items-center gap-2">
 //               <button
 //                 onClick={() => fileInputRef.current?.click()}
-//                 className="p-2 bg-gray-500 text-white rounded-full hover:bg-gray-600 transition"
+//                 className={`p-2 rounded-full ${isDarkMode ? "bg-gray-700 hover:bg-gray-600" : "bg-gray-200 hover:bg-gray-300"} transition`}
 //                 aria-label="Attach file"
 //               >
-//                 <FontAwesomeIcon icon={faPaperclip} className="w-5 h-5" />
+//                 <FontAwesomeIcon icon={faPaperclip} className="w-5 h-5 text-gray-900 dark:text-gray-100" />
 //               </button>
 //               <input
 //                 type="file"
@@ -1090,8 +1107,12 @@
 //                 value={message}
 //                 onChange={(e) => setMessage(e.target.value)}
 //                 placeholder="Type a message..."
-//                 className={`flex-1 px-4 py-2 rounded-full border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${isDarkMode ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400" : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"}`}
-//                 onKeyPress={(e) => {
+//                 className={`flex-1 px-4 py-2 rounded-full border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
+//                   isDarkMode
+//                     ? "bg-gray-700 text-gray-100 border-gray-600 placeholder-gray-400"
+//                     : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
+//                 }`}
+//                 onKeyDown={(e) => {
 //                   if (e.key === "Enter" && !e.shiftKey) {
 //                     e.preventDefault();
 //                     sendMessage();
@@ -1100,8 +1121,9 @@
 //               />
 //               <button
 //                 onClick={sendMessage}
-//                 className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition"
+//                 className={`p-2 rounded-full ${message.trim() ? "bg-[#005555] hover:bg-[#004444]" : "bg-gray-400 cursor-not-allowed"} text-white transition`}
 //                 aria-label="Send message"
+//                 disabled={!message.trim()}
 //               >
 //                 <FontAwesomeIcon icon={faPaperPlane} className="w-5 h-5" />
 //               </button>
@@ -1114,6 +1136,8 @@
 // };
 
 // export default Chatbox;
+
+
 
 "use client";
 
@@ -1160,6 +1184,7 @@ interface Message {
   fileType?: string;
   fileSize?: number;
   fileName?: string;
+  tempId?: string;
 }
 
 interface Conversation {
@@ -1182,7 +1207,7 @@ const Chatbox: React.FC = () => {
   const [message, setMessage] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("theme") === "light" ? false : true);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editedContent, setEditedContent] = useState("");
   const [showChatMessages, setShowChatMessages] = useState(false);
@@ -1203,7 +1228,7 @@ const Chatbox: React.FC = () => {
       try {
         const response = await axios.get(`${BACKEND_URL}/me`, {
           withCredentials: true,
-          timeout: 10000, // 10s timeout
+          timeout: 10000,
         });
         const { userId, role, fullName } = response.data;
         console.log("Fetched user:", { userId, role, fullName });
@@ -1228,9 +1253,9 @@ const Chatbox: React.FC = () => {
   }, [router]);
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem("theme") === "dark";
-    setIsDarkMode(savedTheme);
-    document.documentElement.classList.toggle("dark", savedTheme);
+    const savedTheme = localStorage.getItem("theme") === "light";
+    setIsDarkMode(!savedTheme);
+    document.documentElement.classList.toggle("dark", !savedTheme);
   }, []);
 
   const fetchConversations = useCallback(async () => {
@@ -1261,6 +1286,7 @@ const Chatbox: React.FC = () => {
                 fileType: msg.fileType || undefined,
                 fileSize: msg.fileSize || undefined,
                 fileName: msg.fileName || undefined,
+                tempId: msg.tempId || undefined,
               })),
               unread: conv.unread || 0,
             },
@@ -1322,6 +1348,7 @@ const Chatbox: React.FC = () => {
         fileType: message.fileType || undefined,
         fileSize: message.fileSize || undefined,
         fileName: message.fileName || undefined,
+        tempId: message.tempId || undefined,
       };
       setConversations((prev) => {
         const exists = prev.find((conv) => conv.id === normalizedMessage.conversationId);
@@ -1333,25 +1360,35 @@ const Chatbox: React.FC = () => {
           conv.id === normalizedMessage.conversationId
             ? {
                 ...conv,
-                messages: [
-                  ...conv.messages.filter((m) => m.id !== normalizedMessage.id && !m.id.startsWith("temp-")),
-                  normalizedMessage,
-                ],
+                messages: conv.messages.some(
+                  (m) => m.id === normalizedMessage.id || m.tempId === normalizedMessage.tempId
+                )
+                  ? conv.messages.map((m) =>
+                      m.id === normalizedMessage.id || m.tempId === normalizedMessage.tempId
+                        ? normalizedMessage
+                        : m
+                    )
+                  : [...conv.messages, normalizedMessage],
                 unread: selectedConversation?.id === conv.id ? 0 : (conv.unread || 0) + 1,
                 updatedAt: new Date().toISOString(),
               }
             : conv
-        );
+        ).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       });
       if (selectedConversation?.id === normalizedMessage.conversationId) {
         setSelectedConversation((prev) =>
           prev
             ? {
                 ...prev,
-                messages: [
-                  ...prev.messages.filter((m) => m.id !== normalizedMessage.id && !m.id.startsWith("temp-")),
-                  normalizedMessage,
-                ],
+                messages: prev.messages.some(
+                  (m) => m.id === normalizedMessage.id || m.tempId === normalizedMessage.tempId
+                )
+                  ? prev.messages.map((m) =>
+                      m.id === normalizedMessage.id || m.tempId === normalizedMessage.tempId
+                        ? normalizedMessage
+                        : m
+                    )
+                  : [...prev.messages, normalizedMessage],
                 unread: 0,
               }
             : prev
@@ -1373,6 +1410,7 @@ const Chatbox: React.FC = () => {
         fileType: updatedMessage.fileType || undefined,
         fileSize: updatedMessage.fileSize || undefined,
         fileName: updatedMessage.fileName || undefined,
+        tempId: updatedMessage.tempId || undefined,
       };
       setConversations((prev) =>
         prev.map((conv) =>
@@ -1448,6 +1486,7 @@ const Chatbox: React.FC = () => {
           fileType: msg.fileType || undefined,
           fileSize: msg.fileSize || undefined,
           fileName: msg.fileName || undefined,
+          tempId: msg.tempId || undefined,
         })),
         unread: updatedConversation.unread || 0,
       };
@@ -1547,6 +1586,7 @@ const Chatbox: React.FC = () => {
         fileType: msg.fileType || undefined,
         fileSize: msg.fileSize || undefined,
         fileName: msg.fileName || undefined,
+        tempId: msg.tempId || undefined,
       }));
     } catch (error: unknown) {
       console.error("Failed to fetch messages:", error);
@@ -1636,6 +1676,40 @@ const Chatbox: React.FC = () => {
       return;
     }
 
+    const tempId = `temp-${Date.now()}-${Math.random()}`; // Generate unique tempId
+    const tempMessage: Message = {
+      id: tempId,
+      tempId,
+      content: "Uploading file...",
+      sender: {
+        id: userId,
+        fullName: localStorage.getItem("fullName") || "User",
+        email: localStorage.getItem("email") || "",
+        role: "USER",
+      },
+      createdAt: new Date().toISOString(),
+      conversationId: selectedConversation.id,
+      isEdited: false,
+      isDeleted: false,
+      fileUrl: URL.createObjectURL(file), // Temporary local URL for optimistic rendering
+      fileType: file.type,
+      fileSize: file.size,
+      fileName: file.name,
+    };
+
+    // Add temporary message to UI
+    setSelectedConversation((prev) =>
+      prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev
+    );
+    setConversations((prev) =>
+      prev.map((conv) =>
+        conv.id === selectedConversation.id
+          ? { ...conv, messages: [...conv.messages, tempMessage], updatedAt: new Date().toISOString() }
+          : conv
+      ).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    );
+    scrollToBottom();
+
     const formData = new FormData();
     formData.append("file", file);
     formData.append(
@@ -1645,80 +1719,58 @@ const Chatbox: React.FC = () => {
         : selectedConversation.participant1.id
     );
     formData.append("conversationId", selectedConversation.id);
+    formData.append("tempId", tempId); // Include tempId in payload
 
     try {
+      const timeoutId = setTimeout(() => {
+        setSelectedConversation((prev) =>
+          prev
+            ? { ...prev, messages: prev.messages.filter((m) => m.tempId !== tempId) }
+            : prev
+        );
+        setConversations((prev) =>
+          prev.map((conv) =>
+            conv.id === selectedConversation.id
+              ? { ...conv, messages: conv.messages.filter((m) => m.tempId !== tempId) }
+              : conv
+          )
+        );
+        toast.error("File upload timed out", { duration: 3000 });
+      }, 10000); // 10-second timeout
+
       const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
+        headers: { "Content-Type": "multipart/form-data" },
         withCredentials: true,
         timeout: 15000,
       });
-      const { fileUrl, fileType, fileSize, fileName } = response.data.data || {};
-      if (!fileUrl) {
-        throw new Error("File upload response missing fileUrl");
+
+      clearTimeout(timeoutId); // Clear timeout on success
+
+      const { fileUrl, messageId } = response.data.data || {};
+      if (!fileUrl || !messageId) {
+        throw new Error("File upload response missing fileUrl or messageId");
       }
 
-      const recipientId =
-        selectedConversation.participant1.id === userId
-          ? selectedConversation.participant2.id
-          : selectedConversation.participant1.id;
-      const tempMessageId = `temp-${Date.now()}`;
-      const tempMessage: Message = {
-        id: tempMessageId,
-        content: "File message",
-        sender: {
-          id: userId,
-          fullName: localStorage.getItem("fullName") || "User",
-          email: localStorage.getItem("email") || "",
-          role: "USER",
-        },
-        createdAt: new Date().toISOString(),
-        conversationId: selectedConversation.id,
-        isEdited: false,
-        isDeleted: false,
-        fileUrl,
-        fileType,
-        fileSize,
-        fileName,
-      };
-
-      socketRef.current.emit("private message", {
-        content: "File message",
-        to: recipientId,
-        from: userId,
-        conversationId: selectedConversation.id,
-        fileUrl,
-        fileType,
-        fileSize,
-        fileName,
-      });
-
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (error: unknown) {
+      console.error("Failed to upload file:", error);
+      toast.error(
+        axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file",
+        { duration: 3000 }
+      );
       setSelectedConversation((prev) =>
-        prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev
+        prev
+          ? { ...prev, messages: prev.messages.filter((m) => m.tempId !== tempId) }
+          : prev
       );
       setConversations((prev) =>
         prev.map((conv) =>
           conv.id === selectedConversation.id
-            ? {
-                ...conv,
-                messages: [...conv.messages, tempMessage],
-                updatedAt: new Date().toISOString(),
-              }
+            ? { ...conv, messages: conv.messages.filter((m) => m.tempId !== tempId) }
             : conv
         )
       );
-      scrollToBottom();
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    } catch (error: unknown) {
-      console.error("Failed to upload file:", error);
-      toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file", { duration: 3000 });
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -1729,10 +1781,11 @@ const Chatbox: React.FC = () => {
       selectedConversation.participant1.id === userId
         ? selectedConversation.participant2.id
         : selectedConversation.participant1.id;
-    const tempMessageId = `temp-${Date.now()}`;
+    const tempId = `temp-${Date.now()}-${Math.random()}`;
     const tempMessage: Message = {
-      id: tempMessageId,
-      content: message,
+      id: tempId,
+      tempId,
+      content: DOMPurify.sanitize(message),
       sender: {
         id: userId,
         fullName: localStorage.getItem("fullName") || "User",
@@ -1746,14 +1799,15 @@ const Chatbox: React.FC = () => {
     };
 
     socketRef.current.emit("private message", {
-      content: message,
+      content: DOMPurify.sanitize(message),
       to: recipientId,
       from: userId,
       conversationId: selectedConversation.id,
+      tempId,
     });
 
     setSelectedConversation((prev) =>
-      prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev
+      prev ? { ...prev, messages: [...prev.messages, tempMessage], unread: 0 } : prev
     );
     setConversations((prev) =>
       prev.map((conv) =>
@@ -1761,10 +1815,11 @@ const Chatbox: React.FC = () => {
           ? {
               ...conv,
               messages: [...conv.messages, tempMessage],
+              unread: 0,
               updatedAt: new Date().toISOString(),
             }
           : conv
-      )
+      ).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     );
 
     setMessage("");
@@ -1788,7 +1843,7 @@ const Chatbox: React.FC = () => {
       );
       socketRef.current?.emit("message updated", {
         messageId: editingMessageId,
-        content: editedContent,
+        content: DOMPurify.sanitize(editedContent),
         from: userId,
         conversationId: selectedConversation.id,
         to:
@@ -1900,10 +1955,12 @@ const Chatbox: React.FC = () => {
   };
 
   const toggleDarkMode = () => {
-    const newDarkMode = !isDarkMode;
-    setIsDarkMode(newDarkMode);
-    localStorage.setItem("theme", newDarkMode ? "dark" : "light");
-    document.documentElement.classList.toggle("dark", newDarkMode);
+    setIsDarkMode((prev) => {
+      const newMode = !prev;
+      localStorage.setItem("theme", newMode ? "dark" : "light");
+      document.documentElement.classList.toggle("dark", newMode);
+      return newMode;
+    });
   };
 
   const getPartnerName = (conv: Conversation | null): string => {
@@ -1912,6 +1969,21 @@ const Chatbox: React.FC = () => {
   };
 
   const filteredConversations = tab === "ALL" ? conversations : conversations.filter((conv) => conv.unread > 0);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (selectedConversation?.id) {
+      timer = setTimeout(() => {
+        fetchMessages(selectedConversation.id).then((messages) => {
+          setSelectedConversation((prev) =>
+            prev ? { ...prev, messages } : prev
+          );
+          scrollToBottom();
+        });
+      }, 5000); // Refresh every 5 seconds
+    }
+    return () => clearTimeout(timer);
+  }, [selectedConversation?.id]);
 
   if (!userId) return null;
 
@@ -1943,7 +2015,7 @@ const Chatbox: React.FC = () => {
               className={`w-full px-4 py-2 mt-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
                 isDarkMode
                   ? "bg-gray-700 text-gray-100 border-gray-600 placeholder-gray-400"
-                  : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
+                  : "bg-white text-gray-900 border-gray-200 placeholder-gray-500" // Updated to bg-white and text-gray-900
               }`}
             />
             {searchResults.length > 0 && (
@@ -2060,7 +2132,7 @@ const Chatbox: React.FC = () => {
           >
             {selectedConversation?.messages?.map((msg) => (
               <div
-                key={msg.id}
+                key={msg.id || msg.tempId}
                 className={`flex ${msg.sender?.id === userId ? "justify-end" : "justify-start"} group relative`}
               >
                 <div
@@ -2071,7 +2143,7 @@ const Chatbox: React.FC = () => {
                         : "bg-gray-700 text-gray-100 hover:bg-gray-600"
                       : msg.sender.id === userId
                       ? "bg-[#005555] text-white hover:bg-[#004444]"
-                      : "bg-white text-gray-900 hover:bg-gray-50 shadow-sm"
+                      : "bg-white text-black hover:bg-gray-50 shadow-sm" // Updated to text-gray-900
                   }`}
                 >
                   {editingMessageId === msg.id ? (
@@ -2084,7 +2156,7 @@ const Chatbox: React.FC = () => {
                         className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] ${
                           isDarkMode
                             ? "bg-gray-700 text-gray-100 border-gray-600"
-                            : "bg-white text-gray-900 border-gray-200"
+                            : "bg-white text-black border-black" // Updated to bg-white and text-gray-900
                         }`}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
@@ -2118,12 +2190,13 @@ const Chatbox: React.FC = () => {
                     <>
                       {msg.fileUrl ? (
                         <div>
-                          <p className="text-sm">{msg.content}</p>
+                          {msg.content !== "File message" && <p className="text-sm">{msg.content}</p>}
                           {msg.fileType?.startsWith("image/") ? (
                             <img
                               src={`${BACKEND_URL}${msg.fileUrl}`}
                               alt={msg.fileName || "Uploaded image"}
                               className="max-w-[200px] rounded-lg mt-1"
+                              onError={() => toast.error("Failed to load image", { duration: 3000 })}
                             />
                           ) : (
                             <a
@@ -2153,7 +2226,7 @@ const Chatbox: React.FC = () => {
                       </p>
                     </>
                   )}
-                  {msg.sender.id === userId && (
+                  {msg.sender.id === userId && !msg.tempId && (
                     <button
                       onClick={() => toggleMessageMenu(msg.id)}
                       className="absolute top-2 right-2 p-1 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
@@ -2219,7 +2292,7 @@ const Chatbox: React.FC = () => {
                 className={`flex-1 px-4 py-2 rounded-full border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
                   isDarkMode
                     ? "bg-gray-700 text-gray-100 border-gray-600 placeholder-gray-400"
-                    : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
+                    : "bg-white text-black border-gray-200 placeholder-black" // Updated to bg-white and text-gray-900
                 }`}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {

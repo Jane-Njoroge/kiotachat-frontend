@@ -1,4 +1,3 @@
-
 // "use client";
 
 // import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -68,7 +67,7 @@
 //   const [searchResults, setSearchResults] = useState<User[]>([]);
 //   const [adminId, setAdminId] = useState<string | null>(null);
 //   const [role, setRole] = useState<string | null>(null);
-//   const [isDarkMode, setIsDarkMode] = useState(true);
+//   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("theme") === "light" ? false : true);
 //   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 //   const [editedContent, setEditedContent] = useState("");
 //   const [menuMessageId, setMenuMessageId] = useState<string | null>(null);
@@ -83,13 +82,16 @@
 //   const fileInputRef = useRef<HTMLInputElement>(null);
 //   const router = useRouter();
 
-//   // Fetch user data from /me endpoint
+//   useEffect(() => {
+//     const savedTheme = localStorage.getItem("theme") === "light";
+//     setIsDarkMode(!savedTheme);
+//     document.documentElement.classList.toggle("dark", !savedTheme);
+//   }, []);
+
 //   useEffect(() => {
 //     const fetchUser = async () => {
 //       try {
-//         const response = await axios.get(`${BACKEND_URL}/me`, {
-//           withCredentials: true,
-//         });
+//         const response = await axios.get(`${BACKEND_URL}/me`, { withCredentials: true });
 //         const { userId, role, fullName } = response.data;
 //         console.log("Fetched user:", { userId, role, fullName });
 
@@ -112,7 +114,6 @@
 //     fetchUser();
 //   }, [router]);
 
-//   // Define fetchConversations
 //   const fetchConversations = useCallback(async () => {
 //     if (!adminId) return;
 //     try {
@@ -156,7 +157,6 @@
 //     }
 //   }, [adminId, router]);
 
-//   // Initialize socket and handle events
 //   useEffect(() => {
 //     if (!adminId || !role) return;
 
@@ -180,11 +180,7 @@
 //     });
 
 //     socket.on("connect_error", (err: Error) => {
-//       console.error("Socket connect error:", {
-//         message: err.message,
-//         stack: err.stack,
-//         cause: err.cause,
-//       });
+//       console.error("Socket connect error:", { message: err.message, stack: err.stack, cause: err.cause });
 //       toast.error("Failed to connect to server");
 //     });
 
@@ -212,10 +208,7 @@
 //           conv.id === normalizedMessage.conversationId
 //             ? {
 //                 ...conv,
-//                 messages: [
-//                   ...conv.messages.filter((m) => m.id !== normalizedMessage.id && !m.id.startsWith("temp-")),
-//                   normalizedMessage,
-//                 ],
+//                 messages: conv.messages.map((m) => m.id === normalizedMessage.id ? normalizedMessage : m),
 //                 unread: selectedConversation?.id === conv.id ? 0 : (conv.unread || 0) + 1,
 //                 updatedAt: new Date().toISOString(),
 //               }
@@ -227,10 +220,7 @@
 //           prev
 //             ? {
 //                 ...prev,
-//                 messages: [
-//                   ...prev.messages.filter((m) => m.id !== normalizedMessage.id && !m.id.startsWith("temp-")),
-//                   normalizedMessage,
-//                 ],
+//                 messages: prev.messages.map((m) => m.id === normalizedMessage.id ? normalizedMessage : m),
 //                 unread: 0,
 //               }
 //             : prev
@@ -258,9 +248,7 @@
 //           conv.id === normalizedMessage.conversationId
 //             ? {
 //                 ...conv,
-//                 messages: conv.messages.map((msg) =>
-//                   msg.id === normalizedMessage.id ? normalizedMessage : msg
-//                 ),
+//                 messages: conv.messages.map((msg) => msg.id === normalizedMessage.id ? normalizedMessage : msg),
 //               }
 //             : conv
 //         )
@@ -270,9 +258,7 @@
 //           prev
 //             ? {
 //                 ...prev,
-//                 messages: prev.messages.map((msg) =>
-//                   msg.id === normalizedMessage.id ? normalizedMessage : msg
-//                 ),
+//                 messages: prev.messages.map((msg) => msg.id === normalizedMessage.id ? normalizedMessage : msg),
 //               }
 //             : prev
 //         );
@@ -468,7 +454,6 @@
 //     }
 //   };
 
-//   // Handle file upload
 //   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
 //     const file = e.target.files?.[0];
 //     if (!file || !selectedConversation || !adminId || !socketRef.current) return;
@@ -496,19 +481,16 @@
 
 //     try {
 //       const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
-//         headers: {
-//           "Content-Type": "multipart/form-data",
-//         },
+//         headers: { "Content-Type": "multipart/form-data" },
 //         withCredentials: true,
 //       });
-//       const { fileUrl, fileType, fileSize, fileName } = response.data.data || {};
-//       if (!fileUrl) {
-//         throw new Error("File upload response missing fileUrl");
+//       const { fileUrl, fileType, fileSize, fileName, messageId } = response.data.data || {};
+//       if (!fileUrl || !messageId) {
+//         throw new Error("File upload response missing fileUrl or messageId");
 //       }
 
-//       const tempId = `temp-${Date.now()}`;
-//       const optimisticMessage: Message = {
-//         id: tempId,
+//       const newMessage: Message = {
+//         id: messageId,
 //         content: "File message",
 //         sender: {
 //           id: adminId,
@@ -528,10 +510,7 @@
 
 //       socketRef.current.emit("private message", {
 //         content: "File message",
-//         to:
-//           selectedConversation.participant1.id === adminId
-//             ? selectedConversation.participant2.id
-//             : selectedConversation.participant1.id,
+//         to: selectedConversation.participant1.id === adminId ? selectedConversation.participant2.id : selectedConversation.participant1.id,
 //         from: adminId,
 //         conversationId: selectedConversation.id,
 //         fileUrl,
@@ -541,30 +520,22 @@
 //       });
 
 //       setSelectedConversation((prev) =>
-//         prev ? { ...prev, messages: [...prev.messages, optimisticMessage] } : prev
+//         prev ? { ...prev, messages: [...prev.messages, newMessage] } : prev
 //       );
 //       setConversations((prev) =>
 //         prev.map((conv) =>
 //           conv.id === selectedConversation.id
-//             ? {
-//                 ...conv,
-//                 messages: [...conv.messages, optimisticMessage],
-//                 updatedAt: new Date().toISOString(),
-//               }
+//             ? { ...conv, messages: [...conv.messages, newMessage], updatedAt: new Date().toISOString() }
 //             : conv
 //         )
 //       );
 //       scrollToBottom();
 
-//       if (fileInputRef.current) {
-//         fileInputRef.current.value = "";
-//       }
+//       if (fileInputRef.current) fileInputRef.current.value = "";
 //     } catch (error: unknown) {
 //       console.error("Failed to upload file:", error);
 //       toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file");
-//       if (fileInputRef.current) {
-//         fileInputRef.current.value = "";
-//       }
+//       if (fileInputRef.current) fileInputRef.current.value = "";
 //     }
 //   };
 
@@ -741,9 +712,12 @@
 //   };
 
 //   const toggleDarkMode = () => {
-//     setIsDarkMode((prev) => !prev);
-//     localStorage.setItem("theme", !isDarkMode ? "dark" : "light");
-//     document.documentElement.classList.toggle("dark", !isDarkMode);
+//     setIsDarkMode((prev) => {
+//       const newMode = !prev;
+//       localStorage.setItem("theme", newMode ? "dark" : "light");
+//       document.documentElement.classList.toggle("dark", newMode);
+//       return newMode;
+//     });
 //   };
 
 //   const getPartnerName = (conv: Conversation | null): string => {
@@ -751,13 +725,28 @@
 //     return conv.participant1.id === adminId ? conv.participant2.fullName : conv.participant1.fullName;
 //   };
 
+//   useEffect(() => {
+//     let timer: NodeJS.Timeout;
+//     if (selectedConversation?.id) {
+//       timer = setTimeout(() => {
+//         fetchMessages(selectedConversation.id).then((messages) => {
+//           setSelectedConversation((prev) =>
+//             prev ? { ...prev, messages } : prev
+//           );
+//           scrollToBottom();
+//         });
+//       }, 5000); // Refresh every 5 seconds
+//     }
+//     return () => clearTimeout(timer);
+//   }, [selectedConversation?.id]);
+
 //   if (!adminId) return null;
 
 //   return (
 //     <div
 //       className={`h-screen flex ${
 //         isDarkMode ? "bg-gradient-to-b from-gray-800 to-gray-900" : "bg-gradient-to-b from-gray-100 to-gray-200"
-//       } text-gray-800 dark:text-gray-100 transition-colors duration-300`}
+//       } text-black dark:text-white transition-colors duration-300`}
 //     >
 //       <Toaster />
 //       <div
@@ -770,10 +759,10 @@
 //           placeholder="Search users..."
 //           value={searchQuery}
 //           onChange={(e) => setSearchQuery(e.target.value)}
-//           className={`w-full p-3 mb-4 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
+//           className={`w-full p-3 mb-4 border rounded-full focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
 //             isDarkMode
 //               ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
-//               : "bg-gray-50 text-gray-800 border-gray-300 placeholder-gray-500"
+//               : "bg-gray-50 text-black border-gray-300 placeholder-gray-400"
 //           }`}
 //         />
 //         {searchResults.length > 0 ? (
@@ -783,7 +772,9 @@
 //               className="p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer rounded-lg transition flex items-center space-x-3"
 //               onClick={() => createConversation(result.id)}
 //             >
-//               <div className="w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center text-white font-semibold">
+//               <div
+//                 className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold"
+//               >
 //                 {result.fullName[0]?.toUpperCase() || "?"}
 //               </div>
 //               <span>{result.fullName}</span>
@@ -796,17 +787,21 @@
 //               className={`p-3 cursor-pointer rounded-lg transition flex items-center space-x-3 ${
 //                 selectedConversation?.id === conv.id
 //                   ? isDarkMode
-//                     ? "bg-blue-900"
-//                     : "bg-blue-100"
+//                     ? "bg-[#005555]"
+//                     : "bg-[#007575]"
 //                   : "hover:bg-gray-100 dark:hover:bg-gray-700"
 //               }`}
 //               onClick={() => selectConversation(conv)}
 //             >
-//               <div className="w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center text-white font-semibold">
+//               <div
+//                 className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold"
+//               >
 //                 {getPartnerName(conv)[0]?.toUpperCase() || "?"}
 //               </div>
 //               <div className="flex-1">
-//                 <span className={`font-medium ${conv.unread > 0 ? "font-bold" : ""}`}>
+//                 <span
+//                   className={`font-medium ${conv.unread > 0 ? "font-bold text-[#005555] dark:text-[#005555]" : ""}`}
+//                 >
 //                   {getPartnerName(conv)}
 //                 </span>
 //                 <p className="text-sm truncate text-gray-500 dark:text-gray-400 max-w-[200px]">
@@ -814,7 +809,7 @@
 //                 </p>
 //               </div>
 //               {conv.unread > 0 && (
-//                 <span className="bg-red-500 text-white rounded-full px-2 py-1 text-xs font-semibold">
+//                 <span className="bg-[#005555] text-white rounded-full px-2 py-1 text-xs font-semibold">
 //                   {conv.unread}
 //                 </span>
 //               )}
@@ -830,25 +825,29 @@
 //                 isDarkMode ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white"
 //               } shadow-sm flex items-center space-x-3`}
 //             >
-//               <div className="w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center text-white font-semibold">
+//               <div
+//                 className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold"
+//               >
 //                 {getPartnerName(selectedConversation)[0]?.toUpperCase() || "?"}
 //               </div>
 //               <h2 className="text-xl font-semibold">{getPartnerName(selectedConversation)}</h2>
 //             </div>
-//             <div className={`flex-1 p-4 overflow-y-auto ${isDarkMode ? "bg-gray-900" : "bg-gray-100"} space-y-4`}>
+//             <div
+//               className={`flex-1 p-4 overflow-y-auto ${isDarkMode ? "bg-gray-900" : "bg-gray-100"} space-y-4`}
+//             >
 //               {selectedConversation.messages.map((msg) => (
 //                 <div
 //                   key={msg.id}
 //                   className={`relative flex ${msg.sender.id === adminId ? "justify-end" : "justify-start"} group`}
 //                 >
-//                   <div 
+//                   <div
 //                     className={`relative p-3 rounded-2xl max-w-[70%] transition-all ${
 //                       msg.sender.id === adminId
-//                         ? "bg-blue-500 text-white"
+//                         ? "bg-[#005555] text-white"
 //                         : isDarkMode
 //                         ? "bg-gray-700 text-white"
-//                         : "bg-white text-gray-800 shadow-md"
-//                     } ${msg.sender.id === adminId ? "hover:bg-blue-600" : "hover:bg-gray-200 dark:hover:bg-gray-600"}`}
+//                         : "bg-white text-black shadow-md"
+//                     } ${msg.sender.id === adminId ? "hover:bg-[#007575]" : "hover:bg-gray-200 dark:hover:bg-gray-600"}`}
 //                   >
 //                     {editingMessageId === msg.id ? (
 //                       <div className="flex flex-col">
@@ -862,8 +861,10 @@
 //                               editMessage(msg.id, editedContent);
 //                             }
 //                           }}
-//                           className={`w-full p-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-//                             isDarkMode ? "bg-gray-800 text-white border-gray-600" : "bg-white text-gray-800 border-gray-300"
+//                           className={`w-full p-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] ${
+//                             isDarkMode
+//                               ? "bg-gray-800 text-white border-gray-600"
+//                               : "bg-white text-black border-gray-300"
 //                           }`}
 //                         />
 //                         <div className="mt-2 flex justify-end space-x-2">
@@ -898,6 +899,7 @@
 //                                 src={`${BACKEND_URL}${msg.fileUrl}`}
 //                                 alt={msg.fileName || "Uploaded image"}
 //                                 className="max-w-[200px] rounded-lg"
+//                                 onError={() => toast.error("Failed to load image")}
 //                               />
 //                             ) : (
 //                               <a
@@ -952,7 +954,7 @@
 //                             setEditedContent(msg.content);
 //                             setMenuMessageId(null);
 //                           }}
-//                           className="flex items-center w-full px-4 py-2 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+//                           className="flex items-center w-full px-4 py-2 text-sm text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition"
 //                         >
 //                           <FontAwesomeIcon icon={faEdit} className="mr-2" /> Edit
 //                         </button>
@@ -964,7 +966,7 @@
 //                         </button>
 //                         <button
 //                           onClick={() => openForwardModal(msg.id, msg.content)}
-//                           className="flex items-center w-full px-4 py-2 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+//                           className="flex items-center w-full px-4 py-2 text-sm text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition"
 //                         >
 //                           <FontAwesomeIcon icon={faShare} className="mr-2" /> Forward
 //                         </button>
@@ -999,16 +1001,16 @@
 //                 value={newMessage}
 //                 onChange={(e) => setNewMessage(e.target.value)}
 //                 placeholder="Type a message..."
-//                 className={`flex-1 mx-3 p-3 rounded-full border focus:outline-none focus:ring-2 focus:ring-blue-500 transition ${
+//                 className={`flex-1 mx-3 p-3 rounded-full border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
 //                   isDarkMode
 //                     ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
-//                     : "bg-gray-50 text-gray-800 border-gray-300 placeholder-gray-500"
+//                     : "bg-gray-50 text-black border-gray-300 placeholder-gray-400"
 //                 }`}
 //                 onKeyPress={(e) => e.key === "Enter" && sendMessage()}
 //               />
 //               <button
 //                 onClick={sendMessage}
-//                 className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition"
+//                 className="p-3 bg-[#005555] text-white rounded-full hover:bg-[#007575] transition"
 //                 aria-label="Send message"
 //               >
 //                 <FontAwesomeIcon icon={faPaperPlane} />
@@ -1025,7 +1027,7 @@
 //         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-20">
 //           <div
 //             className={`p-6 rounded-lg shadow-lg ${
-//               isDarkMode ? "bg-gray-800 text-white" : "bg-white text-gray-800"
+//               isDarkMode ? "bg-gray-800 text-white" : "bg-white text-black"
 //             } max-w-md w-full`}
 //           >
 //             <h3 className="text-lg font-semibold mb-4">Forward Message To</h3>
@@ -1037,7 +1039,9 @@
 //                     className="p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer rounded-lg flex items-center space-x-3"
 //                     onClick={() => forwardMessage([admin.id])}
 //                   >
-//                     <div className="w-8 h-8 rounded-full bg-purple-500 flex items-center justify-center text-white font-semibold">
+//                     <div
+//                       className="w-8 h-8 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold"
+//                     >
 //                       {admin.fullName[0]?.toUpperCase() || "?"}
 //                     </div>
 //                     <span>{admin.fullName}</span>
@@ -1055,7 +1059,7 @@
 //                   setForwardContent("");
 //                   setAdmins([]);
 //                 }}
-//                 className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-white rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+//                 className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-black dark:text-white rounded hover:bg-gray-400 dark:hover:bg-gray-500"
 //               >
 //                 Cancel
 //               </button>
@@ -1066,7 +1070,7 @@
 //       <button
 //         onClick={toggleDarkMode}
 //         className={`absolute top-4 right-4 p-3 rounded-full ${
-//           isDarkMode ? "bg-gray-700 text-white hover:bg-gray-600" : "bg-gray-200 text-gray-800 hover:bg-gray-300"
+//           isDarkMode ? "bg-gray-700 text-white hover:bg-gray-600" : "bg-gray-200 text-black hover:bg-gray-300"
 //         } transition`}
 //         aria-label="Toggle theme"
 //       >
@@ -1077,6 +1081,7 @@
 // };
 
 // export default AdminChatbox;
+
 
 
 "use client";
@@ -1124,6 +1129,7 @@ interface Message {
   fileType?: string;
   fileSize?: number;
   fileName?: string;
+  tempId?: string;
 }
 
 interface Conversation {
@@ -1148,7 +1154,7 @@ const AdminChatbox: React.FC = () => {
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [adminId, setAdminId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("theme") === "light" ? false : true);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editedContent, setEditedContent] = useState("");
   const [menuMessageId, setMenuMessageId] = useState<string | null>(null);
@@ -1163,13 +1169,16 @@ const AdminChatbox: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  // Fetch user data from /me endpoint
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme") === "light";
+    setIsDarkMode(!savedTheme);
+    document.documentElement.classList.toggle("dark", !savedTheme);
+  }, []);
+
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const response = await axios.get(`${BACKEND_URL}/me`, {
-          withCredentials: true,
-        });
+        const response = await axios.get(`${BACKEND_URL}/me`, { withCredentials: true });
         const { userId, role, fullName } = response.data;
         console.log("Fetched user:", { userId, role, fullName });
 
@@ -1192,7 +1201,6 @@ const AdminChatbox: React.FC = () => {
     fetchUser();
   }, [router]);
 
-  // Define fetchConversations
   const fetchConversations = useCallback(async () => {
     if (!adminId) return;
     try {
@@ -1220,6 +1228,7 @@ const AdminChatbox: React.FC = () => {
                 fileType: msg.fileType || undefined,
                 fileSize: msg.fileSize || undefined,
                 fileName: msg.fileName || undefined,
+                tempId: msg.tempId || undefined,
               })),
               unread: conv.unread || 0,
             },
@@ -1236,7 +1245,6 @@ const AdminChatbox: React.FC = () => {
     }
   }, [adminId, router]);
 
-  // Initialize socket and handle events
   useEffect(() => {
     if (!adminId || !role) return;
 
@@ -1260,11 +1268,7 @@ const AdminChatbox: React.FC = () => {
     });
 
     socket.on("connect_error", (err: Error) => {
-      console.error("Socket connect error:", {
-        message: err.message,
-        stack: err.stack,
-        cause: err.cause,
-      });
+      console.error("Socket connect error:", { message: err.message, stack: err.stack, cause: err.cause });
       toast.error("Failed to connect to server");
     });
 
@@ -1281,6 +1285,7 @@ const AdminChatbox: React.FC = () => {
         fileType: message.fileType || undefined,
         fileSize: message.fileSize || undefined,
         fileName: message.fileName || undefined,
+        tempId: message.tempId || undefined,
       };
       setConversations((prev) => {
         const exists = prev.find((conv) => conv.id === normalizedMessage.conversationId);
@@ -1292,25 +1297,35 @@ const AdminChatbox: React.FC = () => {
           conv.id === normalizedMessage.conversationId
             ? {
                 ...conv,
-                messages: [
-                  ...conv.messages.filter((m) => m.id !== normalizedMessage.id && !m.id.startsWith("temp-")),
-                  normalizedMessage,
-                ],
+                messages: conv.messages.some(
+                  (m) => m.id === normalizedMessage.id || m.tempId === normalizedMessage.tempId
+                )
+                  ? conv.messages.map((m) =>
+                      m.id === normalizedMessage.id || m.tempId === normalizedMessage.tempId
+                        ? normalizedMessage
+                        : m
+                    )
+                  : [...conv.messages, normalizedMessage],
                 unread: selectedConversation?.id === conv.id ? 0 : (conv.unread || 0) + 1,
                 updatedAt: new Date().toISOString(),
               }
             : conv
-        );
+        ).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       });
       if (selectedConversation?.id === normalizedMessage.conversationId) {
         setSelectedConversation((prev) =>
           prev
             ? {
                 ...prev,
-                messages: [
-                  ...prev.messages.filter((m) => m.id !== normalizedMessage.id && !m.id.startsWith("temp-")),
-                  normalizedMessage,
-                ],
+                messages: prev.messages.some(
+                  (m) => m.id === normalizedMessage.id || m.tempId === normalizedMessage.tempId
+                )
+                  ? prev.messages.map((m) =>
+                      m.id === normalizedMessage.id || m.tempId === normalizedMessage.tempId
+                        ? normalizedMessage
+                        : m
+                    )
+                  : [...prev.messages, normalizedMessage],
                 unread: 0,
               }
             : prev
@@ -1332,6 +1347,7 @@ const AdminChatbox: React.FC = () => {
         fileType: updatedMessage.fileType || undefined,
         fileSize: updatedMessage.fileSize || undefined,
         fileName: updatedMessage.fileName || undefined,
+        tempId: updatedMessage.tempId || undefined,
       };
       setConversations((prev) =>
         prev.map((conv) =>
@@ -1401,6 +1417,7 @@ const AdminChatbox: React.FC = () => {
           fileType: msg.fileType || undefined,
           fileSize: msg.fileSize || undefined,
           fileName: msg.fileName || undefined,
+          tempId: msg.tempId || undefined,
         })),
         unread: updatedConversation.unread || 0,
       };
@@ -1469,6 +1486,7 @@ const AdminChatbox: React.FC = () => {
         fileType: msg.fileType || undefined,
         fileSize: msg.fileSize || undefined,
         fileName: msg.fileName || undefined,
+        tempId: msg.tempId || undefined,
       }));
     } catch (error: unknown) {
       console.error("Failed to fetch messages:", error);
@@ -1548,7 +1566,6 @@ const AdminChatbox: React.FC = () => {
     }
   };
 
-  // Handle file upload
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedConversation || !adminId || !socketRef.current) return;
@@ -1564,6 +1581,40 @@ const AdminChatbox: React.FC = () => {
       return;
     }
 
+    const tempId = `temp-${Date.now()}-${Math.random()}`; // Generate unique tempId
+    const tempMessage: Message = {
+      id: tempId,
+      tempId,
+      content: "Uploading file...",
+      sender: {
+        id: adminId,
+        fullName: localStorage.getItem("fullName") || "Admin",
+        email: localStorage.getItem("email") || "",
+        role: "ADMIN",
+      },
+      createdAt: new Date().toISOString(),
+      conversationId: selectedConversation.id,
+      isEdited: false,
+      isForwarded: false,
+      fileUrl: URL.createObjectURL(file), // Temporary local URL for optimistic rendering
+      fileType: file.type,
+      fileSize: file.size,
+      fileName: file.name,
+    };
+
+    // Add temporary message to UI
+    setSelectedConversation((prev) =>
+      prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev
+    );
+    setConversations((prev) =>
+      prev.map((conv) =>
+        conv.id === selectedConversation.id
+          ? { ...conv, messages: [...conv.messages, tempMessage], updatedAt: new Date().toISOString() }
+          : conv
+      ).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    );
+    scrollToBottom();
+
     const formData = new FormData();
     formData.append("file", file);
     formData.append(
@@ -1573,87 +1624,65 @@ const AdminChatbox: React.FC = () => {
         : selectedConversation.participant1.id
     );
     formData.append("conversationId", selectedConversation.id);
+    formData.append("tempId", tempId); // Include tempId in payload
 
     try {
+      const timeoutId = setTimeout(() => {
+        setSelectedConversation((prev) =>
+          prev
+            ? { ...prev, messages: prev.messages.filter((m) => m.tempId !== tempId) }
+            : prev
+        );
+        setConversations((prev) =>
+          prev.map((conv) =>
+            conv.id === selectedConversation.id
+              ? { ...conv, messages: conv.messages.filter((m) => m.tempId !== tempId) }
+              : conv
+          )
+        );
+        toast.error("File upload timed out");
+      }, 10000); // 10-second timeout
+
       const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
+        headers: { "Content-Type": "multipart/form-data" },
         withCredentials: true,
+        timeout: 90000,
       });
-      const { fileUrl, fileType, fileSize, fileName } = response.data.data || {};
-      if (!fileUrl) {
-        throw new Error("File upload response missing fileUrl");
+
+      clearTimeout(timeoutId); // Clear timeout on success
+
+      const { fileUrl, messageId } = response.data.data || {};
+      if (!fileUrl || !messageId) {
+        throw new Error("File upload response missing fileUrl or messageId");
       }
 
-      const tempId = `temp-${Date.now()}`;
-      const optimisticMessage: Message = {
-        id: tempId,
-        content: "File message",
-        sender: {
-          id: adminId,
-          fullName: localStorage.getItem("fullName") || "Admin",
-          email: localStorage.getItem("email") || "",
-          role: "ADMIN",
-        },
-        createdAt: new Date().toISOString(),
-        conversationId: selectedConversation.id,
-        isEdited: false,
-        isForwarded: false,
-        fileUrl,
-        fileType,
-        fileSize,
-        fileName,
-      };
-
-      socketRef.current.emit("private message", {
-        content: "File message",
-        to:
-          selectedConversation.participant1.id === adminId
-            ? selectedConversation.participant2.id
-            : selectedConversation.participant1.id,
-        from: adminId,
-        conversationId: selectedConversation.id,
-        fileUrl,
-        fileType,
-        fileSize,
-        fileName,
-      });
-
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (error: unknown) {
+      console.error("Failed to upload file:", error);
+      toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file");
       setSelectedConversation((prev) =>
-        prev ? { ...prev, messages: [...prev.messages, optimisticMessage] } : prev
+        prev
+          ? { ...prev, messages: prev.messages.filter((m) => m.tempId !== tempId) }
+          : prev
       );
       setConversations((prev) =>
         prev.map((conv) =>
           conv.id === selectedConversation.id
-            ? {
-                ...conv,
-                messages: [...conv.messages, optimisticMessage],
-                updatedAt: new Date().toISOString(),
-              }
+            ? { ...conv, messages: conv.messages.filter((m) => m.tempId !== tempId) }
             : conv
         )
       );
-      scrollToBottom();
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    } catch (error: unknown) {
-      console.error("Failed to upload file:", error);
-      toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   const sendMessage = () => {
     if (!newMessage.trim() || !selectedConversation || !socketRef.current || !adminId) return;
-    const tempId = `temp-${Date.now()}`;
+    const tempId = `temp-${Date.now()}-${Math.random()}`; // Generate unique tempId
     const optimisticMessage: Message = {
       id: tempId,
-      content: newMessage,
+      tempId,
+      content: DOMPurify.sanitize(newMessage),
       sender: {
         id: adminId,
         fullName: localStorage.getItem("fullName") || "Admin",
@@ -1666,16 +1695,17 @@ const AdminChatbox: React.FC = () => {
       isForwarded: false,
     };
     socketRef.current.emit("private message", {
-      content: newMessage,
+      content: DOMPurify.sanitize(newMessage),
       to:
         selectedConversation.participant1.id === adminId
           ? selectedConversation.participant2.id
           : selectedConversation.participant1.id,
       from: adminId,
       conversationId: selectedConversation.id,
+      tempId, // Include tempId in socket emission
     });
     setSelectedConversation((prev) =>
-      prev ? { ...prev, messages: [...prev.messages, optimisticMessage] } : prev
+      prev ? { ...prev, messages: [...prev.messages, optimisticMessage], unread: 0 } : prev
     );
     setConversations((prev) =>
       prev.map((conv) =>
@@ -1683,10 +1713,11 @@ const AdminChatbox: React.FC = () => {
           ? {
               ...conv,
               messages: [...conv.messages, optimisticMessage],
+              unread: 0,
               updatedAt: new Date().toISOString(),
             }
           : conv
-      )
+      ).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     );
     setNewMessage("");
     scrollToBottom();
@@ -1821,9 +1852,12 @@ const AdminChatbox: React.FC = () => {
   };
 
   const toggleDarkMode = () => {
-    setIsDarkMode((prev) => !prev);
-    localStorage.setItem("theme", !isDarkMode ? "dark" : "light");
-    document.documentElement.classList.toggle("dark", !isDarkMode);
+    setIsDarkMode((prev) => {
+      const newMode = !prev;
+      localStorage.setItem("theme", newMode ? "dark" : "light");
+      document.documentElement.classList.toggle("dark", newMode);
+      return newMode;
+    });
   };
 
   const getPartnerName = (conv: Conversation | null): string => {
@@ -1831,13 +1865,11 @@ const AdminChatbox: React.FC = () => {
     return conv.participant1.id === adminId ? conv.participant2.fullName : conv.participant1.fullName;
   };
 
-  if (!adminId) return null;
-
   return (
     <div
       className={`h-screen flex ${
         isDarkMode ? "bg-gradient-to-b from-gray-800 to-gray-900" : "bg-gradient-to-b from-gray-100 to-gray-200"
-      } text-black dark:text-gray-100 transition-colors duration-300`} // Changed text-gray-800 to text-black
+      } text-black dark:text-white transition-colors duration-300`}
     >
       <Toaster />
       <div
@@ -1853,8 +1885,8 @@ const AdminChatbox: React.FC = () => {
           className={`w-full p-3 mb-4 border rounded-full focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
             isDarkMode
               ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
-              : "bg-gray-50 text-black border-gray-300 placeholder-black" // Changed text-gray-800 to text-black, placeholder-gray-500 to placeholder-black
-          }`} // Changed focus:ring-blue-500 to focus:ring-[#005555]
+              : "bg-gray-50 text-black border-gray-300 placeholder-gray-400"
+          }`}
         />
         {searchResults.length > 0 ? (
           searchResults.map((result) => (
@@ -1864,11 +1896,11 @@ const AdminChatbox: React.FC = () => {
               onClick={() => createConversation(result.id)}
             >
               <div
-                className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold" // Changed bg-purple-500 to bg-[#005555]
+                className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold"
               >
                 {result.fullName[0]?.toUpperCase() || "?"}
               </div>
-              <span>{result.fullName}</span> {/* Inherits text-black in light mode */}
+              <span>{result.fullName}</span>
             </div>
           ))
         ) : (
@@ -1878,20 +1910,20 @@ const AdminChatbox: React.FC = () => {
               className={`p-3 cursor-pointer rounded-lg transition flex items-center space-x-3 ${
                 selectedConversation?.id === conv.id
                   ? isDarkMode
-                    ? "bg-[#005555]" // Changed bg-blue-900 to bg-[#005555]
-                    : "bg-[#007575]" // Changed bg-blue-100 to bg-[#007575]
+                    ? "bg-[#005555]"
+                    : "bg-[#007575]"
                   : "hover:bg-gray-100 dark:hover:bg-gray-700"
               }`}
               onClick={() => selectConversation(conv)}
             >
               <div
-                className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold" // Changed bg-purple-500 to bg-[#005555]
+                className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold"
               >
                 {getPartnerName(conv)[0]?.toUpperCase() || "?"}
               </div>
               <div className="flex-1">
                 <span
-                  className={`font-medium ${conv.unread > 0 ? "font-bold text-[#005555] dark:text-[#005555]" : ""}`} // Changed font-bold to include text-[#005555]
+                  className={`font-medium ${conv.unread > 0 ? "font-bold text-[#005555] dark:text-[#005555]" : ""}`}
                 >
                   {getPartnerName(conv)}
                 </span>
@@ -1900,7 +1932,7 @@ const AdminChatbox: React.FC = () => {
                 </p>
               </div>
               {conv.unread > 0 && (
-                <span className="bg-[#005555] text-white rounded-full px-2 py-1 text-xs font-semibold"> {/* Changed bg-red-500 to bg-[#005555] */}
+                <span className="bg-[#005555] text-white rounded-full px-2 py-1 text-xs font-semibold">
                   {conv.unread}
                 </span>
               )}
@@ -1917,28 +1949,28 @@ const AdminChatbox: React.FC = () => {
               } shadow-sm flex items-center space-x-3`}
             >
               <div
-                className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold" // Changed bg-purple-500 to bg-[#005555]
+                className="w-10 h-10 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold"
               >
                 {getPartnerName(selectedConversation)[0]?.toUpperCase() || "?"}
               </div>
-              <h2 className="text-xl font-semibold">{getPartnerName(selectedConversation)}</h2> {/* Inherits text-black in light mode */}
+              <h2 className="text-xl font-semibold">{getPartnerName(selectedConversation)}</h2>
             </div>
             <div
               className={`flex-1 p-4 overflow-y-auto ${isDarkMode ? "bg-gray-900" : "bg-gray-100"} space-y-4`}
             >
               {selectedConversation.messages.map((msg) => (
                 <div
-                  key={msg.id}
+                  key={msg.id || msg.tempId}
                   className={`relative flex ${msg.sender.id === adminId ? "justify-end" : "justify-start"} group`}
                 >
                   <div
                     className={`relative p-3 rounded-2xl max-w-[70%] transition-all ${
                       msg.sender.id === adminId
-                        ? "bg-[#005555] text-white" // Changed bg-blue-500 to bg-[#005555]
+                        ? "bg-[#005555] text-white"
                         : isDarkMode
                         ? "bg-gray-700 text-white"
-                        : "bg-white text-black shadow-md" // Changed text-gray-800 to text-black
-                    } ${msg.sender.id === adminId ? "hover:bg-[#007575]" : "hover:bg-gray-200 dark:hover:bg-gray-600"}`} // Changed hover:bg-blue-600 to hover:bg-[#007575]
+                        : "bg-white text-black shadow-md" // Changed to text-black for better contrast
+                    } ${msg.sender.id === adminId ? "hover:bg-[#007575]" : "hover:bg-gray-200 dark:hover:bg-gray-600"}`}
                   >
                     {editingMessageId === msg.id ? (
                       <div className="flex flex-col">
@@ -1955,8 +1987,8 @@ const AdminChatbox: React.FC = () => {
                           className={`w-full p-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] ${
                             isDarkMode
                               ? "bg-gray-800 text-white border-gray-600"
-                              : "bg-white text-black border-gray-300" // Changed text-gray-800 to text-black
-                          }`} // Changed focus:ring-blue-500 to focus:ring-[#005555]
+                              : "bg-white text-black border-gray-300" // Ensured text is black in light mode
+                          }`}
                         />
                         <div className="mt-2 flex justify-end space-x-2">
                           <button
@@ -1983,20 +2015,27 @@ const AdminChatbox: React.FC = () => {
                       <>
                         {msg.fileUrl ? (
                           <div>
-                            <p>{msg.content}</p>
+                            {msg.content !== "File message" && <p className="text-sm">{msg.content}</p>}
                             {msg.fileType?.startsWith("image/") ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
-                                src={`${BACKEND_URL}${msg.fileUrl}`}
+                                src={msg.fileUrl}
                                 alt={msg.fileName || "Uploaded image"}
                                 className="max-w-[200px] rounded-lg"
+                                onError={() => toast.error(`Failed to load image: ${msg.fileName || "Unknown"}`)}
                               />
                             ) : (
                               <a
-                                href={`${BACKEND_URL}${msg.fileUrl}`}
+                                href={msg.fileUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-blue-300 hover:underline"
+                                className="text-blue-300 hover:underline text-sm"
+                                onClick={(e) => {
+                                  if (!msg.fileUrl) {
+                                    e.preventDefault();
+                                    toast.error(`Failed to load file: ${msg.fileName || "Unknown"}`);
+                                  }
+                                }}
                               >
                                 {msg.fileName || "View File"}
                               </a>
@@ -2010,6 +2049,7 @@ const AdminChatbox: React.FC = () => {
                                 ALLOWED_ATTR: ["src", "href", "alt", "class", "target"],
                               }),
                             }}
+                            className="text-sm" // Added class for consistent text color
                           />
                         )}
                         <p className="text-xs mt-1 opacity-70">
@@ -2022,7 +2062,7 @@ const AdminChatbox: React.FC = () => {
                         </p>
                       </>
                     )}
-                    {msg.sender.id === adminId && (
+                    {msg.sender.id === adminId && !msg.tempId && (
                       <button
                         onClick={() => toggleMessageMenu(msg.id)}
                         className="absolute top-2 right-2 p-1 text-gray-200 hover:text-gray-300"
@@ -2044,7 +2084,7 @@ const AdminChatbox: React.FC = () => {
                             setEditedContent(msg.content);
                             setMenuMessageId(null);
                           }}
-                          className="flex items-center w-full px-4 py-2 text-sm text-black dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 transition" // Changed text-gray-800 to text-black
+                          className="flex items-center w-full px-4 py-2 text-sm text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                         >
                           <FontAwesomeIcon icon={faEdit} className="mr-2" /> Edit
                         </button>
@@ -2056,7 +2096,7 @@ const AdminChatbox: React.FC = () => {
                         </button>
                         <button
                           onClick={() => openForwardModal(msg.id, msg.content)}
-                          className="flex items-center w-full px-4 py-2 text-sm text-black dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 transition" // Changed text-gray-800 to text-black
+                          className="flex items-center w-full px-4 py-2 text-sm text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                         >
                           <FontAwesomeIcon icon={faShare} className="mr-2" /> Forward
                         </button>
@@ -2094,13 +2134,13 @@ const AdminChatbox: React.FC = () => {
                 className={`flex-1 mx-3 p-3 rounded-full border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
                   isDarkMode
                     ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
-                    : "bg-gray-50 text-black border-gray-300 placeholder-black" // Changed text-gray-800 to text-black, placeholder-gray-500 to placeholder-black
-                }`} // Changed focus:ring-blue-500 to focus:ring-[#005555]
+                    : "bg-white text-black border-gray-300 placeholder-gray-400" // Changed bg-gray-50 to bg-white and ensured text-black
+                }`}
                 onKeyPress={(e) => e.key === "Enter" && sendMessage()}
               />
               <button
                 onClick={sendMessage}
-                className="p-3 bg-[#005555] text-white rounded-full hover:bg-[#007575] transition" // Changed bg-blue-500 to bg-[#005555], hover:bg-blue-600 to hover:bg-[#007575]
+                className="p-3 bg-[#005555] text-white rounded-full hover:bg-[#007575] transition"
                 aria-label="Send message"
               >
                 <FontAwesomeIcon icon={faPaperPlane} />
@@ -2117,7 +2157,7 @@ const AdminChatbox: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-20">
           <div
             className={`p-6 rounded-lg shadow-lg ${
-              isDarkMode ? "bg-gray-800 text-white" : "bg-white text-black" // Changed text-gray-800 to text-black
+              isDarkMode ? "bg-gray-800 text-white" : "bg-white text-black"
             } max-w-md w-full`}
           >
             <h3 className="text-lg font-semibold mb-4">Forward Message To</h3>
@@ -2130,11 +2170,11 @@ const AdminChatbox: React.FC = () => {
                     onClick={() => forwardMessage([admin.id])}
                   >
                     <div
-                      className="w-8 h-8 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold" // Changed bg-purple-500 to bg-[#005555]
+                      className="w-8 h-8 rounded-full bg-[#005555] flex items-center justify-center text-white font-semibold"
                     >
                       {admin.fullName[0]?.toUpperCase() || "?"}
                     </div>
-                    <span>{admin.fullName}</span> {/* Inherits text-black in light mode */}
+                    <span>{admin.fullName}</span>
                   </div>
                 ))}
               </div>
@@ -2149,7 +2189,7 @@ const AdminChatbox: React.FC = () => {
                   setForwardContent("");
                   setAdmins([]);
                 }}
-                className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-black dark:text-white rounded hover:bg-gray-400 dark:hover:bg-gray-500" // Changed text-gray-800 to text-black
+                className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-black dark:text-white rounded hover:bg-gray-400 dark:hover:bg-gray-500"
               >
                 Cancel
               </button>
@@ -2160,7 +2200,7 @@ const AdminChatbox: React.FC = () => {
       <button
         onClick={toggleDarkMode}
         className={`absolute top-4 right-4 p-3 rounded-full ${
-          isDarkMode ? "bg-gray-700 text-white hover:bg-gray-600" : "bg-gray-200 text-black hover:bg-gray-300" // Changed text-gray-800 to text-black
+          isDarkMode ? "bg-gray-700 text-white hover:bg-gray-600" : "bg-gray-200 text-black hover:bg-gray-300"
         } transition`}
         aria-label="Toggle theme"
       >
@@ -2169,5 +2209,4 @@ const AdminChatbox: React.FC = () => {
     </div>
   );
 };
-
 export default AdminChatbox;
