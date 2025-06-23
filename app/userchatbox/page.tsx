@@ -1138,7 +1138,6 @@
 // export default Chatbox;
 
 
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -1160,6 +1159,7 @@ import io, { Socket } from "socket.io-client";
 import axios, { AxiosError } from "axios";
 import { Toaster, toast } from "react-hot-toast";
 import DOMPurify from "dompurify";
+import Image from "next/image"; // Added for image optimization
 
 config.autoAddCss = false;
 
@@ -1197,9 +1197,6 @@ interface Conversation {
   updatedAt: string;
 }
 
-interface SocketError {
-  message?: string;
-}
 
 const Chatbox: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -1207,7 +1204,12 @@ const Chatbox: React.FC = () => {
   const [message, setMessage] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("theme") === "light" ? false : true);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("theme") !== "light";
+    }
+    return true; // Default to dark mode on server
+  });
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editedContent, setEditedContent] = useState("");
   const [showChatMessages, setShowChatMessages] = useState(false);
@@ -1242,8 +1244,10 @@ const Chatbox: React.FC = () => {
 
         setUserId(userId);
         setRole(role);
-        localStorage.setItem("fullName", fullName);
-      } catch (error: unknown) {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("fullName", fullName);
+        }
+      } catch (error) {
         console.error("Error fetching user:", error);
         toast.error("Authentication failed. Please try again.", { duration: 3000 });
         router.push("/login");
@@ -1253,9 +1257,11 @@ const Chatbox: React.FC = () => {
   }, [router]);
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem("theme") === "light";
-    setIsDarkMode(!savedTheme);
-    document.documentElement.classList.toggle("dark", !savedTheme);
+    if (typeof window !== "undefined") {
+      const savedTheme = localStorage.getItem("theme") === "light";
+      setIsDarkMode(!savedTheme);
+      document.documentElement.classList.toggle("dark", !savedTheme);
+    }
   }, []);
 
   const fetchConversations = useCallback(async () => {
@@ -1292,9 +1298,9 @@ const Chatbox: React.FC = () => {
             },
           ])
         ).values()
-      ).sort((a: Conversation, b: Conversation) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      ).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       setConversations(uniqueConversations);
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to fetch conversations:", error);
       toast.error("Failed to load chats. Please try again.", { duration: 3000 });
       if (axios.isAxiosError(error) && error.response?.status === 401) {
@@ -1326,7 +1332,7 @@ const Chatbox: React.FC = () => {
       socket.emit("register", { userId: parseInt(userId, 10), role: "USER" });
     });
 
-    socket.on("connect_error", (err: Error) => {
+    socket.on("connect_error", (err) => {
       console.error("Socket connect error:", {
         message: err.message,
         stack: err.stack,
@@ -1335,7 +1341,7 @@ const Chatbox: React.FC = () => {
       toast.error("Failed to connect to server", { duration: 3000 });
     });
 
-    socket.on("private message", (message: Message) => {
+    socket.on("private message", (message) => {
       console.log("Received private message:", message);
       const normalizedMessage: Message = {
         ...message,
@@ -1397,7 +1403,7 @@ const Chatbox: React.FC = () => {
       }
     });
 
-    socket.on("message updated", (updatedMessage: Message) => {
+    socket.on("message updated", (updatedMessage) => {
       console.log("Received updated message:", updatedMessage);
       const normalizedMessage: Message = {
         ...updatedMessage,
@@ -1437,7 +1443,7 @@ const Chatbox: React.FC = () => {
       setMenuMessageId(null);
     });
 
-    socket.on("message deleted", (deletedMessage: { id: string; conversationId: string; isDeleted: boolean }) => {
+    socket.on("message deleted", (deletedMessage) => {
       console.log("Received message deleted:", deletedMessage);
       const normalizedDeletedMessage = {
         ...deletedMessage,
@@ -1468,14 +1474,14 @@ const Chatbox: React.FC = () => {
       setMenuMessageId(null);
     });
 
-    socket.on("conversation updated", (updatedConversation: Conversation) => {
+    socket.on("conversation updated", (updatedConversation) => {
       console.log("Received conversation updated:", updatedConversation);
       const normalizedConversation: Conversation = {
         ...updatedConversation,
         id: String(updatedConversation.id),
         participant1: { ...updatedConversation.participant1, id: String(updatedConversation.participant1.id) },
         participant2: { ...updatedConversation.participant2, id: String(updatedConversation.participant2.id) },
-        messages: updatedConversation.messages.map((msg) => ({
+        messages: updatedConversation.messages.map((msg: { id: unknown; sender: { id: unknown; }; conversationId: unknown; isEdited: unknown; isDeleted: unknown; fileUrl: unknown; fileType: unknown; fileSize: unknown; fileName: unknown; tempId: unknown; }) => ({
           ...msg,
           id: String(msg.id),
           sender: { ...msg.sender, id: String(msg.sender.id) },
@@ -1503,7 +1509,7 @@ const Chatbox: React.FC = () => {
       }
     });
 
-    socket.on("error", (error: SocketError) => {
+    socket.on("error", (error) => {
       console.error("Socket error:", error);
       toast.error(error.message || "Connection error", { duration: 3000 });
       if (error.message?.includes("Invalid userId") || error.message?.includes("validation failed")) {
@@ -1558,7 +1564,7 @@ const Chatbox: React.FC = () => {
           timeout: 10000,
         });
         setSearchResults(response.data.map((user) => ({ ...user, id: String(user.id) })));
-      } catch (error: unknown) {
+      } catch (error) {
         console.error("Search failed:", error);
         toast.error("Failed to find admins", { duration: 3000 });
       }
@@ -1588,7 +1594,7 @@ const Chatbox: React.FC = () => {
         fileName: msg.fileName || undefined,
         tempId: msg.tempId || undefined,
       }));
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to fetch messages:", error);
       toast.error("Failed to load messages", { duration: 3000 });
       return [];
@@ -1620,7 +1626,7 @@ const Chatbox: React.FC = () => {
             { userId },
             { withCredentials: true }
           );
-        } catch (error: unknown) {
+        } catch (error) {
           console.error("Failed to mark conversation as read:", error);
           toast.error("Failed to mark as read", { duration: 3000 });
         }
@@ -1655,7 +1661,7 @@ const Chatbox: React.FC = () => {
       setSearchQuery("");
       setSearchResults([]);
       scrollToBottom();
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to start conversation:", error);
       toast.error("Failed to start chat", { duration: 3000 });
     }
@@ -1666,7 +1672,7 @@ const Chatbox: React.FC = () => {
     if (!file || !selectedConversation || !userId || !socketRef.current) return;
 
     const allowedTypes = ["image/png", "image/jpeg", "image/gif", "application/pdf"];
-    const maxSize = 5 * 1024 * 1024; // 5MB
+    const maxSize = 5 * 1024 * 1024;
     if (!allowedTypes.includes(file.type)) {
       toast.error("Only PNG, JPEG, GIF, or PDF files allowed", { duration: 3000 });
       return;
@@ -1676,28 +1682,27 @@ const Chatbox: React.FC = () => {
       return;
     }
 
-    const tempId = `temp-${Date.now()}-${Math.random()}`; // Generate unique tempId
+    const tempId = `temp-${Date.now()}-${Math.random()}`;
     const tempMessage: Message = {
       id: tempId,
       tempId,
       content: "Uploading file...",
       sender: {
         id: userId,
-        fullName: localStorage.getItem("fullName") || "User",
-        email: localStorage.getItem("email") || "",
+        fullName: typeof window !== "undefined" ? localStorage.getItem("fullName") || "User" : "User",
+        email: typeof window !== "undefined" ? localStorage.getItem("email") || "" : "",
         role: "USER",
       },
       createdAt: new Date().toISOString(),
       conversationId: selectedConversation.id,
       isEdited: false,
       isDeleted: false,
-      fileUrl: URL.createObjectURL(file), // Temporary local URL for optimistic rendering
+      fileUrl: URL.createObjectURL(file),
       fileType: file.type,
       fileSize: file.size,
       fileName: file.name,
     };
 
-    // Add temporary message to UI
     setSelectedConversation((prev) =>
       prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev
     );
@@ -1719,7 +1724,7 @@ const Chatbox: React.FC = () => {
         : selectedConversation.participant1.id
     );
     formData.append("conversationId", selectedConversation.id);
-    formData.append("tempId", tempId); // Include tempId in payload
+    formData.append("tempId", tempId);
 
     try {
       const timeoutId = setTimeout(() => {
@@ -1736,7 +1741,7 @@ const Chatbox: React.FC = () => {
           )
         );
         toast.error("File upload timed out", { duration: 3000 });
-      }, 10000); // 10-second timeout
+      }, 10000);
 
       const response = await axios.post(`${BACKEND_URL}/upload-file`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -1744,7 +1749,7 @@ const Chatbox: React.FC = () => {
         timeout: 15000,
       });
 
-      clearTimeout(timeoutId); // Clear timeout on success
+      clearTimeout(timeoutId);
 
       const { fileUrl, messageId } = response.data.data || {};
       if (!fileUrl || !messageId) {
@@ -1752,7 +1757,7 @@ const Chatbox: React.FC = () => {
       }
 
       if (fileInputRef.current) fileInputRef.current.value = "";
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to upload file:", error);
       toast.error(
         axios.isAxiosError(error) ? error.response?.data?.message || "Failed to upload file" : "Failed to upload file",
@@ -1788,8 +1793,8 @@ const Chatbox: React.FC = () => {
       content: DOMPurify.sanitize(message),
       sender: {
         id: userId,
-        fullName: localStorage.getItem("fullName") || "User",
-        email: localStorage.getItem("email") || "",
+        fullName: typeof window !== "undefined" ? localStorage.getItem("fullName") || "User" : "User",
+        email: typeof window !== "undefined" ? localStorage.getItem("email") || "" : "",
         role: "USER",
       },
       createdAt: new Date().toISOString(),
@@ -1855,7 +1860,7 @@ const Chatbox: React.FC = () => {
       setEditedContent("");
       setMenuMessageId(null);
       toast.success("Message updated", { duration: 3000 });
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to edit message:", error);
       toast.error("Failed to edit message", { duration: 3000 });
     }
@@ -1879,7 +1884,7 @@ const Chatbox: React.FC = () => {
       });
       setMenuMessageId(null);
       toast.success("Message deleted", { duration: 3000 });
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Failed to delete message:", error);
       toast.error("Failed to delete message", { duration: 3000 });
     }
@@ -1918,7 +1923,7 @@ const Chatbox: React.FC = () => {
         { userId },
         { withCredentials: true, timeout: 10000 }
       );
-    } catch (error: unknown) {
+    } catch (error) {
       let errorMessage = "Failed to load conversation";
       if (error instanceof AxiosError) {
         errorMessage = error.response?.data?.message || errorMessage;
@@ -1957,7 +1962,9 @@ const Chatbox: React.FC = () => {
   const toggleDarkMode = () => {
     setIsDarkMode((prev) => {
       const newMode = !prev;
-      localStorage.setItem("theme", newMode ? "dark" : "light");
+      if (typeof window !== "undefined") {
+        localStorage.setItem("theme", newMode ? "dark" : "light");
+      }
       document.documentElement.classList.toggle("dark", newMode);
       return newMode;
     });
@@ -1980,7 +1987,7 @@ const Chatbox: React.FC = () => {
           );
           scrollToBottom();
         });
-      }, 5000); // Refresh every 5 seconds
+      }, 5000);
     }
     return () => clearTimeout(timer);
   }, [selectedConversation?.id]);
@@ -2015,7 +2022,7 @@ const Chatbox: React.FC = () => {
               className={`w-full px-4 py-2 mt-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
                 isDarkMode
                   ? "bg-gray-700 text-gray-100 border-gray-600 placeholder-gray-400"
-                  : "bg-white text-gray-900 border-gray-200 placeholder-gray-500" // Updated to bg-white and text-gray-900
+                  : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
               }`}
             />
             {searchResults.length > 0 && (
@@ -2143,7 +2150,7 @@ const Chatbox: React.FC = () => {
                         : "bg-gray-700 text-gray-100 hover:bg-gray-600"
                       : msg.sender.id === userId
                       ? "bg-[#005555] text-white hover:bg-[#004444]"
-                      : "bg-white text-black hover:bg-gray-50 shadow-sm" // Updated to text-gray-900
+                      : "bg-white text-gray-900 hover:bg-gray-50 shadow-sm"
                   }`}
                 >
                   {editingMessageId === msg.id ? (
@@ -2156,7 +2163,7 @@ const Chatbox: React.FC = () => {
                         className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-[#005555] ${
                           isDarkMode
                             ? "bg-gray-700 text-gray-100 border-gray-600"
-                            : "bg-white text-black border-black" // Updated to bg-white and text-gray-900
+                            : "bg-white text-gray-900 border-gray-200"
                         }`}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
@@ -2192,9 +2199,11 @@ const Chatbox: React.FC = () => {
                         <div>
                           {msg.content !== "File message" && <p className="text-sm">{msg.content}</p>}
                           {msg.fileType?.startsWith("image/") ? (
-                            <img
+                            <Image
                               src={`${BACKEND_URL}${msg.fileUrl}`}
                               alt={msg.fileName || "Uploaded image"}
+                              width={200}
+                              height={200}
                               className="max-w-[200px] rounded-lg mt-1"
                               onError={() => toast.error("Failed to load image", { duration: 3000 })}
                             />
@@ -2292,7 +2301,7 @@ const Chatbox: React.FC = () => {
                 className={`flex-1 px-4 py-2 rounded-full border focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
                   isDarkMode
                     ? "bg-gray-700 text-gray-100 border-gray-600 placeholder-gray-400"
-                    : "bg-white text-black border-gray-200 placeholder-black" // Updated to bg-white and text-gray-900
+                    : "bg-white text-gray-900 border-gray-200 placeholder-gray-500"
                 }`}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
