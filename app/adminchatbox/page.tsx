@@ -2328,6 +2328,8 @@
 // export default AdminChatbox;
 
 
+
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -2342,7 +2344,6 @@ import {
   faTrash,
   faShare,
   faPaperclip,
-  faBullhorn,
 } from "@fortawesome/free-solid-svg-icons";
 import "@fortawesome/fontawesome-svg-core/styles.css";
 import { config } from "@fortawesome/fontawesome-svg-core";
@@ -2410,8 +2411,6 @@ const AdminChatbox: React.FC = () => {
   const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
   const [forwardContent, setForwardContent] = useState("");
   const [users, setUsers] = useState<User[]>([]);
-  const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
-  const [broadcastMessage, setBroadcastMessage] = useState("");
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -2518,7 +2517,7 @@ const AdminChatbox: React.FC = () => {
 
     socket.on("connect", () => {
       console.log("Socket connected, adminId:", adminId);
-      socket.emit("register", { userId: parseInt(adminId, 10), role: "ADMIN" });
+      socket.emit("register", { userId: adminId, role: "ADMIN" });
     });
 
     socket.on("connect_error", (err) => {
@@ -2687,34 +2686,6 @@ const AdminChatbox: React.FC = () => {
       }
     });
 
-    socket.on("broadcast message", (message) => {
-      console.log("Received broadcast message:", message);
-      const normalizedMessage: Message = {
-        ...message,
-        id: String(message.id),
-        sender: { ...message.sender, id: String(message.sender.id) },
-        conversationId: selectedConversation?.id || "",
-        isEdited: false,
-        isForwarded: false,
-        fileUrl: undefined,
-        fileType: undefined,
-        fileSize: undefined,
-        fileName: undefined,
-        tempId: undefined,
-      };
-      if (selectedConversation) {
-        setSelectedConversation((prev) => (prev ? { ...prev, messages: [...prev.messages, normalizedMessage], unread: (prev.unread || 0) + 1 } : prev));
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === selectedConversation.id
-              ? { ...conv, messages: [...conv.messages, normalizedMessage], unread: (conv.unread || 0) + 1, updatedAt: new Date().toISOString() }
-              : conv
-          ).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-        );
-        scrollToBottom();
-      }
-    });
-
     socket.on("error", (error) => {
       console.error("Socket error:", error);
       toast.error(error.message || "Socket error");
@@ -2784,7 +2755,7 @@ const AdminChatbox: React.FC = () => {
         params: { excludeUserId: adminId },
         withCredentials: true,
       });
-      setUsers(response.data.map((user) => ({ ...user, id: String(user.id) })));
+      setUsers(response.data.map((user) => ({ ...user, id: String(user.id), selected: false })));
     } catch (error) {
       console.error("Failed to fetch users:", error);
       toast.error("Failed to fetch users");
@@ -2802,7 +2773,7 @@ const AdminChatbox: React.FC = () => {
           params: { query: searchQuery, excludeUserId: adminId },
           withCredentials: true,
         });
-        setSearchResults(response.data.map((user) => ({ ...user, id: String(user.id) })));
+        setSearchResults(response.data.map((user) => ({ ...user, id: String(user.id), selected: false })));
       } catch (error) {
         console.error("Search failed:", error);
         toast.error("Search failed");
@@ -2873,7 +2844,7 @@ const AdminChatbox: React.FC = () => {
         fullName: localStorage.getItem("fullName") || "Admin",
         email: localStorage.getItem("email") || "",
         role: "ADMIN",
-        selected: false
+        selected: false,
       },
       createdAt: new Date().toISOString(),
       conversationId: selectedConversation.id,
@@ -2970,7 +2941,7 @@ const AdminChatbox: React.FC = () => {
         fullName: localStorage.getItem("fullName") || "Admin",
         email: localStorage.getItem("email") || "",
         role: "ADMIN",
-        selected: false
+        selected: false,
       },
       createdAt: new Date().toISOString(),
       conversationId: selectedConversation.id,
@@ -3059,7 +3030,7 @@ const AdminChatbox: React.FC = () => {
     setForwardMessageId(messageId);
     setForwardContent(content);
     setForwardModalOpen(true);
-    fetchUsers();
+    fetchUsers(); // Ensure users are fetched when opening the modal
     setMenuMessageId(null);
   };
 
@@ -3079,32 +3050,11 @@ const AdminChatbox: React.FC = () => {
       setForwardModalOpen(false);
       setForwardMessageId(null);
       setForwardContent("");
-      setUsers((prev) => prev.map((user) => ({ ...user, selected: false })));
-      fetchConversations();
+      setUsers((prev) => prev.map((user) => ({ ...user, selected: false }))); // Reset user selections
+      fetchConversations(); // Refresh conversations to reflect forwarded message
     } catch (error) {
       console.error("Failed to forward message:", error);
       toast.error("Failed to forward message");
-    }
-  };
-
-  const sendBroadcastMessage = async () => {
-    if (!broadcastMessage.trim() || !adminId || !socketRef.current) return;
-    try {
-      await axios.post(
-        `${BACKEND_URL}/broadcast`,
-        { content: DOMPurify.sanitize(broadcastMessage), from: adminId },
-        { withCredentials: true }
-      );
-      socketRef.current.emit("broadcast message", {
-        content: DOMPurify.sanitize(broadcastMessage),
-        from: adminId,
-      });
-      setBroadcastModalOpen(false);
-      setBroadcastMessage("");
-      toast.success("Broadcast message sent successfully");
-    } catch (error) {
-      console.error("Failed to send broadcast message:", error);
-      toast.error("Failed to send broadcast message");
     }
   };
 
@@ -3458,20 +3408,10 @@ const AdminChatbox: React.FC = () => {
               />
               <button
                 onClick={sendMessage}
-                className="p-3 bg-[#005555] text-white rounded-full hover:bg-[#007575] transition mr-2"
+                className="p-3 bg-[#005555] text-white rounded-full hover:bg-[#007575] transition"
                 aria-label="Send message"
               >
                 <FontAwesomeIcon icon={faPaperPlane} />
-              </button>
-              <button
-                onClick={() => {
-                  setBroadcastModalOpen(true);
-                  fetchUsers();
-                }}
-                className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition"
-                aria-label="Broadcast message"
-              >
-                <FontAwesomeIcon icon={faBullhorn} />
               </button>
             </div>
           </>
@@ -3502,13 +3442,13 @@ const AdminChatbox: React.FC = () => {
                     <input
                       type="checkbox"
                       checked={user.selected || false}
-                      onChange={(e) => {
+                      onChange={(e) =>
                         setUsers((prev) =>
                           prev.map((u) =>
                             u.id === user.id ? { ...u, selected: e.target.checked } : u
                           )
-                        );
-                      }}
+                        )
+                      }
                       className="mr-2"
                     />
                     <div
@@ -3527,7 +3467,7 @@ const AdminChatbox: React.FC = () => {
               <button
                 onClick={() => {
                   const selectedIds = users.filter((user) => user.selected).map((user) => user.id);
-                  forwardMessage(selectedIds);
+                  if (selectedIds.length) forwardMessage(selectedIds);
                 }}
                 className={`px-4 py-2 rounded ${
                   users.some((user) => user.selected)
@@ -3548,53 +3488,6 @@ const AdminChatbox: React.FC = () => {
                   setForwardMessageId(null);
                   setForwardContent("");
                   setUsers((prev) => prev.map((user) => ({ ...user, selected: false })));
-                }}
-                className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-black dark:text-white rounded hover:bg-gray-400 dark:hover:bg-gray-500"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {broadcastModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-20">
-          <div
-            className={`p-6 rounded-lg shadow-lg ${
-              isDarkMode ? "bg-gray-800 text-white" : "bg-white text-black"
-            } max-w-md w-full`}
-          >
-            <h3 className="text-lg font-semibold mb-4">Send Broadcast Message</h3>
-            <textarea
-              value={broadcastMessage}
-              onChange={(e) => setBroadcastMessage(e.target.value)}
-              placeholder="Type your broadcast message..."
-              className={`w-full p-3 mb-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005555] transition ${
-                isDarkMode
-                  ? "bg-gray-700 text-white border-gray-600 placeholder-gray-400"
-                  : "bg-white text-black border-gray-300 placeholder-gray-400"
-              }`}
-            />
-            <div className="mt-4 flex justify-end space-x-2">
-              <button
-                onClick={sendBroadcastMessage}
-                className={`px-4 py-2 rounded ${
-                  broadcastMessage.trim()
-                    ? isDarkMode
-                      ? "bg-[#005555] text-white hover:bg-[#007575]"
-                      : "bg-[#005555] text-white hover:bg-[#007575]"
-                    : isDarkMode
-                    ? "bg-gray-600 text-white cursor-not-allowed"
-                    : "bg-gray-300 text-black cursor-not-allowed"
-                }`}
-                disabled={!broadcastMessage.trim()}
-              >
-                Send
-              </button>
-              <button
-                onClick={() => {
-                  setBroadcastModalOpen(false);
-                  setBroadcastMessage("");
                 }}
                 className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-black dark:text-white rounded hover:bg-gray-400 dark:hover:bg-gray-500"
               >
